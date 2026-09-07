@@ -7,3 +7,5 @@ edition = "2024"
 global-hotkey = "0.8.0"
 leptess = "0.14"
 rfd = "0.17.2"
+winit = "0.30"
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }

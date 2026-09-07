@@ -1,92 +1,3 @@
-/*mod capture;
-
-use capture::ocr::OcrEngine;
-use rfd::FileDialog;
-use std::path::PathBuf;
-
-use windows::Win32::Foundation::HWND;
-use windows::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW,
-    GetMessageW,
-    RegisterHotKey,
-    TranslateMessage,
-    MSG,
-    WM_HOTKEY,
-};
-
-const OCR_HOTKEY_ID: i32 = 1;
-
-fn main() {
-    println!("Moneta started.");
-    println!("Press Ctrl + Shift + O to OCR an image.");
-    println!("Press Ctrl + C to exit.");
-
-    unsafe {
-        RegisterHotKey(
-            HWND::default(),
-            OCR_HOTKEY_ID,
-            MOD_CONTROL | MOD_SHIFT,
-            'O' as u32,
-        )
-        .expect("Failed to register Ctrl+Shift+O");
-    }
-
-    println!("OCR shortcut registered.");
-
-    let mut msg = MSG::default();
-
-    unsafe {
-        while GetMessageW(&mut msg, HWND::default(), 0, 0).into() {
-            if msg.message == WM_HOTKEY {
-                if msg.wParam.0 as i32 == OCR_HOTKEY_ID {
-                    run_ocr();
-                }
-            }
-
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
-        }
-    }
-}
-
-fn run_ocr() {
-    println!("\n[Moneta Capture]");
-    println!("Select an image...");
-
-    let path: Option<PathBuf> = FileDialog::new()
-        .add_filter(
-            "Images",
-            &["png", "jpg", "jpeg", "bmp", "webp"],
-        )
-        .pick_file();
-
-    let Some(path) = path else {
-        println!("OCR cancelled.");
-        return;
-    };
-
-    println!("Image: {}", path.display());
-    println!("Running OCR...");
-
-    let mut ocr = match OcrEngine::new() {
-        Ok(engine) => engine,
-        Err(error) => {
-            eprintln!("OCR initialization failed: {error}");
-            return;
-        }
-    };
-
-    match ocr.extract_text(&path) {
-        Ok(text) => {
-            println!("\n========== OCR RESULT ==========\n");
-            println!("{text}");
-            println!("================================\n");
-        }
-        Err(error) => {
-            eprintln!("OCR failed: {error}");
-        }
-    }
-} */
 mod capture;
 
 use capture::ocr::OcrEngine;
@@ -97,11 +8,24 @@ use global_hotkey::{
 };
 use rfd::FileDialog;
 use std::path::PathBuf;
+use winit::{
+    event::Event,
+    event_loop::{ControlFlow, EventLoop},
+};
 
 fn main() {
     println!("Moneta started.");
     println!("Press Ctrl + Shift + O to OCR an image.");
 
+    // Windows requires a real Win32 event loop for global-hotkey.
+    let event_loop = EventLoop::new()
+        .expect("Failed to create event loop");
+
+    event_loop.set_control_flow(ControlFlow::Poll);
+
+    // IMPORTANT:
+    // The hotkey manager must be created on the same thread
+    // as the Windows event loop.
     let manager = GlobalHotKeyManager::new()
         .expect("Failed to initialize global hotkey manager");
 
@@ -115,18 +39,33 @@ fn main() {
         .expect("Failed to register OCR shortcut");
 
     println!("OCR shortcut registered.");
+    println!("Waiting for Ctrl + Shift + O...");
 
     let receiver = GlobalHotKeyEvent::receiver();
 
-    loop {
-        if let Ok(event) = receiver.try_recv() {
-            if event.id == hotkey.id() {
-                run_ocr();
-            }
-        }
+    event_loop
+        .run(move |event, _event_loop| {
+            // Keep manager alive for the lifetime of the application.
+            let _ = &manager;
 
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
+            if let Event::AboutToWait = event {
+                while let Ok(event) = receiver.try_recv() {
+                    println!("EVENT RECEIVED: {:?}", event);
+
+                    if event.id == hotkey.id() {
+                        println!("OCR HOTKEY TRIGGERED!");
+
+                        if matches!(
+                            event.state,
+                            global_hotkey::HotKeyState::Pressed
+                        ) {
+                            run_ocr();
+                        }
+                    }
+                }
+            }
+        })
+        .expect("Event loop failed");
 }
 
 fn run_ocr() {
