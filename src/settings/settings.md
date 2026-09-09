@@ -1,0 +1,2 @@
+This module/directory's sole purpose is to describe the various possible settings of the app to the user.
+These settings include, colour, theme, screenshot configuration, bookmark handling, alerts/reminders(future execution plans) etc.

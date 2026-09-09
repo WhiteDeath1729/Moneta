@@ -1,4 +1,7 @@
-#[derive(Debug, Clone)]
+use serde::{Deserialize, Serialize};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bookmark {
     pub id: String,
     pub path: String,
@@ -7,13 +10,18 @@ pub struct Bookmark {
     pub source_url: Option<String>,
     pub captured_text: Option<String>,
     pub ocr_text: Option<String>,
+    pub tags: Vec<String>,
     pub content_hash: String,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
 impl Bookmark {
-    pub fn new(id: String, path: String, title: String, source_type: String,
+    pub fn new(
+        id: String,
+        path: String,
+        title: String,
+        source_type: String,
     ) -> Self {
         let timestamp = current_timestamp();
 
@@ -25,6 +33,7 @@ impl Bookmark {
             source_url: None,
             captured_text: None,
             ocr_text: None,
+            tags: Vec::new(),
             content_hash: String::new(),
             created_at: timestamp,
             updated_at: timestamp,
@@ -37,8 +46,8 @@ impl Bookmark {
 }
 
 fn current_timestamp() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
         .expect("System time is before UNIX epoch")
         .as_secs() as i64
 }

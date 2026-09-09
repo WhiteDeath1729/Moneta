@@ -1,4 +1,5 @@
 mod capture;
+mod vault;
 
 use capture::ocr::OcrEngine;
 use global_hotkey::{
