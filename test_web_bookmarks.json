@@ -1,0 +1,14 @@
+[
+{
+"created_at_in_chrome": 1757800000000,
+"title": "Google",
+"url": "https://google.com",
+"folder_path": "Bookmarks Bar"
+},
+{
+"created_at_in_chrome": 1757800001000,
+"title": "Rust",
+"url": "https://www.rust-lang.org",
+"folder_path": "Bookmarks Bar/Programming"
+}
+]

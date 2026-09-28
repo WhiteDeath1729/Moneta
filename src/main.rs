@@ -17,8 +17,17 @@ use winit::{
 fn main() {
     println!("Moneta started.");
     println!("Press Ctrl + Shift + O to OCR an image.");
+    println!("Press Ctrl + Shift + S to take a screenshot.");
 
-    // Windows requires a real Win32 event loop for global-hotkey.
+    std::thread::spawn(|| {
+        let runtime = tokio::runtime::Runtime::new()
+            .expect("Failed to create Tokio runtime");
+
+        runtime.block_on(async {
+            capture::web::start_server().await;
+        });
+    });
+
     let event_loop = EventLoop::new()
         .expect("Failed to create event loop");
 
@@ -30,17 +39,27 @@ fn main() {
     let manager = GlobalHotKeyManager::new()
         .expect("Failed to initialize global hotkey manager");
 
-    let hotkey = HotKey::new(
+    let ocr_hotkey = HotKey::new(
         Some(Modifiers::CONTROL | Modifiers::SHIFT),
         Code::KeyO,
     );
 
+    let screenshot_hotkey = HotKey::new(
+        Some(Modifiers::CONTROL | Modifiers::SHIFT),
+        Code::KeyS,
+    );
+
     manager
-        .register(hotkey)
+        .register(ocr_hotkey)
         .expect("Failed to register OCR shortcut");
 
+    manager
+        .register(screenshot_hotkey)
+        .expect("Failed to register screenshot shortcut");
+
     println!("OCR shortcut registered.");
-    println!("Waiting for Ctrl + Shift + O...");
+    println!("Screenshot shortcut registered.");
+    println!("Waiting for shortcuts...");
 
     let receiver = GlobalHotKeyEvent::receiver();
 
@@ -53,15 +72,21 @@ fn main() {
                 while let Ok(event) = receiver.try_recv() {
                     println!("EVENT RECEIVED: {:?}", event);
 
-                    if event.id == hotkey.id() {
-                        println!("OCR HOTKEY TRIGGERED!");
+                    if !matches!(
+                        event.state,
+                        global_hotkey::HotKeyState::Pressed
+                    ) {
+                        continue;
+                    }
 
-                        if matches!(
-                            event.state,
-                            global_hotkey::HotKeyState::Pressed
-                        ) {
-                            run_ocr();
-                        }
+                    if event.id == ocr_hotkey.id() {
+                        println!("OCR HOTKEY TRIGGERED!");
+                        run_ocr();
+                    }
+
+                    if event.id == screenshot_hotkey.id() {
+                        println!("SCREENSHOT HOTKEY TRIGGERED!");
+                        capture::screenshot::run();
                     }
                 }
             }

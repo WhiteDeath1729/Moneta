@@ -1,0 +1,32 @@
+{
+    "manifest_version": 3,
+
+    "name": "Moneta Bookmark Bridge",
+    "version": "0.2.0",
+
+    "permissions": [
+        "bookmarks"
+    ],
+
+    "host_permissions": [
+        "<all_urls>",
+        "http://127.0.0.1:8765/*"
+    ],
+
+    "background": {
+        "service_worker": "background.js"
+    },
+
+    "content_scripts": [
+        {
+            "matches": ["<all_urls>"],
+            "js": ["content.js"],
+            "css": ["content.css"],
+            "run_at": "document_idle"
+        }
+    ],
+
+    "action": {
+        "default_popup": "popup.html"
+    }
+}
