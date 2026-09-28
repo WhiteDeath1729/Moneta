@@ -18,8 +18,12 @@ impl VaultStorage {
         Ok(Self { root })
     }
 
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
     pub fn save(&self, bookmark: &Bookmark) -> io::Result<()> {
-        let path = self.bookmark_path(&bookmark.id);
+        let path = self.safe_bookmark_path(&bookmark.id)?;
 
         let metadata =
             serde_yaml::to_string(bookmark)
@@ -34,7 +38,7 @@ impl VaultStorage {
     }
 
     pub fn load(&self, id: &str) -> io::Result<Bookmark> {
-        let path = self.bookmark_path(id);
+        let path = self.safe_bookmark_path(id)?;
 
         let content = fs::read_to_string(path)?;
         let metadata = extract_frontmatter(&content)?;
@@ -48,7 +52,7 @@ impl VaultStorage {
     }
 
     pub fn delete(&self, id: &str) -> io::Result<()> {
-        let path = self.bookmark_path(id);
+        let path = self.safe_bookmark_path(id)?;
 
         if path.exists() {
             fs::remove_file(path)?;
@@ -57,31 +61,79 @@ impl VaultStorage {
         Ok(())
     }
 
-    fn bookmark_path(&self, id: &str) -> PathBuf {
+    pub fn list_ids(&self) -> io::Result<Vec<String>> {
+        let mut ids = Vec::new();
+        if !self.root.exists() {
+            return Ok(ids);
+        }
+
+        for entry in fs::read_dir(&self.root)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("md")
+                && let Some(file_stem) = path.file_stem().and_then(|stem| stem.to_str()) {
+                    ids.push(file_stem.to_string());
+                }
+        }
+        ids.sort();
+        Ok(ids)
+    }
+
+    pub fn list_all(&self) -> io::Result<Vec<Bookmark>> {
+        let ids = self.list_ids()?;
+        let mut bookmarks = Vec::new();
+        for id in ids {
+            match self.load(&id) {
+                Ok(bm) => bookmarks.push(bm),
+                Err(e) => eprintln!("Warning: failed to load bookmark '{id}': {e}"),
+            }
+        }
+        Ok(bookmarks)
+    }
+
+    pub fn bookmark_path(&self, id: &str) -> PathBuf {
         self.root.join(format!("{id}.md"))
+    }
+
+    pub fn safe_bookmark_path(&self, id: &str) -> io::Result<PathBuf> {
+        // Prevent path traversal
+        if id.contains('/') || id.contains('\\') || id.contains("..") {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Invalid bookmark ID: path traversal detected",
+            ));
+        }
+        Ok(self.bookmark_path(id))
     }
 }
 
-fn extract_frontmatter(content: &str) -> io::Result<&str> {
-    let content = content
-        .strip_prefix("---\n")
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Missing frontmatter",
-            )
-        })?;
+pub fn extract_frontmatter(content: &str) -> io::Result<&str> {
+    // Normalize leading prefix check for both \n and \r\n
+    let content = if let Some(stripped) = content.strip_prefix("---\r\n") {
+        stripped
+    } else if let Some(stripped) = content.strip_prefix("---\n") {
+        stripped
+    } else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Missing frontmatter",
+        ));
+    };
 
-    let end = content
-        .find("\n---")
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Invalid frontmatter",
-            )
-        })?;
-
-    Ok(&content[..end])
+    // Find ending delimiter
+    if let Some(end) = content.find("\n---") {
+        let trimmed_end = if end > 0 && content.as_bytes()[end - 1] == b'\r' {
+            end - 1
+        } else {
+            end
+        };
+        Ok(&content[..trimmed_end])
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Invalid frontmatter: missing closing delimiter",
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -114,14 +166,6 @@ mod tests {
             "image".into(),
         );
 
-        /*
-        bookmark.tags = vec![
-            "rust".into(),
-            "ocr".into(),
-            "programming".into(),
-        ];
-        */
-
         storage.save(&bookmark).unwrap();
 
         let bookmark_path = vault_path.join("test123.md");
@@ -152,5 +196,21 @@ mod tests {
             updated.title,
             "Updated Rust OCR Tutorial"
         );
+    }
+
+    #[test]
+    fn test_path_traversal_prevention() {
+        let storage = VaultStorage::new("moneta-vault/bookmarks").unwrap();
+        assert!(storage.safe_bookmark_path("../secret").is_err());
+        assert!(storage.safe_bookmark_path("sub/folder").is_err());
+        assert!(storage.safe_bookmark_path(r"sub\folder").is_err());
+        assert!(storage.safe_bookmark_path("valid-id-123").is_ok());
+    }
+
+    #[test]
+    fn test_list_all_bookmarks() {
+        let storage = VaultStorage::new("moneta-vault/bookmarks").unwrap();
+        let list = storage.list_all().unwrap();
+        assert!(!list.is_empty());
     }
 }
