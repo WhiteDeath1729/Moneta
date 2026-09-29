@@ -22,3 +22,5 @@ image = "0.25"
 zip="1"
 rusqlite = { version = "0.33", features = ["bundled"] }
 tower = { version = "0.5", features = ["util"] }
+winreg = "0.55"
+uiautomation = "0.25.1"

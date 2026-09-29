@@ -1,129 +1,52 @@
+mod ai;
+mod capture;
+mod vault;
+
+use capture::{
+    ocr::OcrEngine,
+    orchestrator::CaptureService,
+    selection::capture_selection,
+};
+
+use vault::{
+    bookmark::Bookmark,
+    storage::VaultStorage,
+};
+
 use global_hotkey::{
     hotkey::{Code, HotKey, Modifiers},
     GlobalHotKeyEvent,
     GlobalHotKeyManager,
 };
+
 use rfd::FileDialog;
-use std::env;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+
+use std::{
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
+
 use winit::{
     event::Event,
     event_loop::{ControlFlow, EventLoop},
 };
 
-use moneta::ai::OfflineAIService;
-use moneta::capture::ocr::OcrEngine;
-use moneta::capture::orchestrator::CaptureService;
-use moneta::capture::{self};
-use moneta::search::indexing::SqliteIndex;
-use moneta::search::semantic::SearchEngine;
-use moneta::vault::storage::VaultStorage;
-
 fn main() {
-    let args: Vec<String> = env::args().collect();
+    println!("======================================");
+    println!("              MONETA                  ");
+    println!("======================================");
+    println!();
+    println!("Shortcuts:");
+    println!("  Ctrl + Shift + O  -> OCR an image");
+    println!("  Ctrl + Shift + S  -> Take a screenshot");
+    println!("  Ctrl + Shift + B  -> Bookmark selected text");
+    println!();
 
-    // Check for CLI subcommands
-    if args.len() > 1 {
-        match args[1].as_str() {
-            "--server" => {
-                println!("Starting Moneta bookmark server on 127.0.0.1:8765...");
-                let runtime = tokio::runtime::Runtime::new()
-                    .expect("Failed to create Tokio runtime");
-                runtime.block_on(async {
-                    capture::web::start_server().await;
-                });
-                return;
-            }
-            "--rebuild" => {
-                println!("Rebuilding Moneta index from markdown vault...");
-                let vault_dir = Path::new("moneta-vault/bookmarks");
-                let storage = match VaultStorage::new(vault_dir) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("Error opening vault: {e}");
-                        return;
-                    }
-                };
-                let db_path = Path::new("moneta-vault/moneta_index.db");
-                let index = match SqliteIndex::open(db_path) {
-                    Ok(idx) => idx,
-                    Err(e) => {
-                        eprintln!("Error opening SQLite index: {e}");
-                        return;
-                    }
-                };
-                let ai = OfflineAIService::new();
-                match index.rebuild_from_vault(&storage, Some(&ai)) {
-                    Ok(count) => println!("Successfully rebuilt index: {count} bookmarks indexed."),
-                    Err(e) => eprintln!("Error during rebuild: {e}"),
-                }
-                return;
-            }
-            "--search" => {
-                if args.len() < 3 {
-                    eprintln!("Usage: moneta --search <query>");
-                    return;
-                }
-                let query = &args[2..].join(" ");
-                println!("Searching for: '{query}'");
-                let db_path = Path::new("moneta-vault/moneta_index.db");
-                let index = Arc::new(match SqliteIndex::open(db_path) {
-                    Ok(idx) => idx,
-                    Err(e) => {
-                        eprintln!("Error opening SQLite index: {e}");
-                        return;
-                    }
-                });
-                let ai = Arc::new(OfflineAIService::new());
-                let search_engine = SearchEngine::new(index, ai);
-                let results = search_engine.hybrid_search(query, 10);
-                println!("\nFound {} results:", results.len());
-                for (i, res) in results.iter().enumerate() {
-                    println!("  {}. [{}] Score: {:.3} (Type: {})", i + 1, res.bookmark_id, res.score, res.match_type);
-                }
-                return;
-            }
-            "--tag" => {
-                if args.len() < 3 {
-                    eprintln!("Usage: moneta --tag <text or title>");
-                    return;
-                }
-                let input = args[2..].join(" ");
-                println!("Generating AI tags for: '{input}'...");
-                let ai = OfflineAIService::new_with_ai_model(moneta::ai::tagging::AiModelConfig::default());
-                let mut bm = moneta::vault::bookmark::Bookmark::new(
-                    "cli-tag".into(),
-                    "".into(),
-                    input.clone(),
-                    "cli".into(),
-                );
-                bm.captured_text = Some(input);
-                let tags = ai.suggest_tags(&bm);
-                println!("\nSuggested Tags ({}):", tags.len());
-                for t in tags {
-                    println!("  - #{} (confidence: {:.0}%, source: {})", t.name, t.confidence.unwrap_or(0.9) * 100.0, t.source);
-                }
-                return;
-            }
-            "--help" | "-h" => {
-                println!("Moneta - Context-Aware, Local-First Bookmarking System");
-                println!("Usage:");
-                println!("  moneta                Start desktop hotkey listener and background API server");
-                println!("  moneta --server       Run the HTTP API server synchronously");
-                println!("  moneta --rebuild      Rebuild SQLite derived index from Markdown vault");
-                println!("  moneta --search <q>   Perform hybrid search across bookmarked content");
-                println!("  moneta --tag <text>   Generate AI tags for text, title, or content");
-                return;
-            }
-            _ => {}
-        }
-    }
-
-    println!("Moneta started.");
-    println!("Press Ctrl + Shift + O to OCR an image.");
-    println!("Press Ctrl + Shift + S to take a screenshot.");
-
+    /*
+     * Start the bookmark web server in the background.
+     *
+     * This keeps the Chrome bookmark integration working.
+     */
     std::thread::spawn(|| {
         let runtime = tokio::runtime::Runtime::new()
             .expect("Failed to create Tokio runtime");
@@ -133,25 +56,46 @@ fn main() {
         });
     });
 
+    /*
+     * Create the Windows event loop.
+     *
+     * IMPORTANT:
+     * GlobalHotKeyManager must be created on the same
+     * thread as the event loop.
+     */
     let event_loop = EventLoop::new()
         .expect("Failed to create event loop");
 
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    // IMPORTANT:
-    // The hotkey manager must be created on the same thread
-    // as the Windows event loop.
     let manager = GlobalHotKeyManager::new()
         .expect("Failed to initialize global hotkey manager");
 
+    /*
+     * OCR:
+     * Ctrl + Shift + O
+     */
     let ocr_hotkey = HotKey::new(
         Some(Modifiers::CONTROL | Modifiers::SHIFT),
         Code::KeyO,
     );
 
+    /*
+     * Screenshot:
+     * Ctrl + Shift + S
+     */
     let screenshot_hotkey = HotKey::new(
         Some(Modifiers::CONTROL | Modifiers::SHIFT),
         Code::KeyS,
+    );
+
+    /*
+     * Selected text bookmark:
+     * Ctrl + Shift + B
+     */
+    let selection_hotkey = HotKey::new(
+        Some(Modifiers::CONTROL | Modifiers::SHIFT),
+        Code::KeyB,
     );
 
     manager
@@ -162,21 +106,33 @@ fn main() {
         .register(screenshot_hotkey)
         .expect("Failed to register screenshot shortcut");
 
+    manager
+        .register(selection_hotkey)
+        .expect("Failed to register selection bookmark shortcut");
+
     println!("OCR shortcut registered.");
     println!("Screenshot shortcut registered.");
+    println!("Selection bookmark shortcut registered.");
+    println!();
     println!("Waiting for shortcuts...");
 
     let receiver = GlobalHotKeyEvent::receiver();
 
     event_loop
         .run(move |event, _event_loop| {
-            // Keep manager alive for the lifetime of the application.
+            /*
+             * Keep the hotkey manager alive for the entire
+             * lifetime of the application.
+             */
             let _ = &manager;
 
             if let Event::AboutToWait = event {
                 while let Ok(event) = receiver.try_recv() {
                     println!("EVENT RECEIVED: {:?}", event);
 
+                    /*
+                     * We only care about key presses.
+                     */
                     if !matches!(
                         event.state,
                         global_hotkey::HotKeyState::Pressed
@@ -184,14 +140,109 @@ fn main() {
                         continue;
                     }
 
+                    /*
+                     * ==============================
+                     * OCR
+                     * ==============================
+                     */
                     if event.id == ocr_hotkey.id() {
-                        println!("OCR HOTKEY TRIGGERED!");
+                        println!();
+                        println!("======================================");
+                        println!("OCR HOTKEY TRIGGERED");
+                        println!("======================================");
+
                         run_ocr();
                     }
 
+                    /*
+                     * ==============================
+                     * SCREENSHOT
+                     * ==============================
+                     */
                     if event.id == screenshot_hotkey.id() {
-                        println!("SCREENSHOT HOTKEY TRIGGERED!");
+                        println!();
+                        println!("======================================");
+                        println!("SCREENSHOT HOTKEY TRIGGERED");
+                        println!("======================================");
+
                         capture::screenshot::run();
+                    }
+
+                    /*
+                     * ==============================
+                     * SELECTED TEXT BOOKMARK
+                     * ==============================
+                     */
+                    if event.id == selection_hotkey.id() {
+                        println!();
+                        println!("======================================");
+                        println!("SELECTION BOOKMARK HOTKEY TRIGGERED");
+                        println!("======================================");
+
+                        match capture_selection() {
+                            Ok(selection) => {
+                                println!();
+                                println!("========== SELECTED TEXT ==========");
+                                println!("{}", selection.text);
+                                println!("===================================");
+
+                                println!();
+                                println!("========== SOURCE ==========");
+                                println!(
+                                    "Window: {}",
+                                    selection.window_title
+                                );
+
+                                println!(
+                                    "Path: {:?}",
+                                    selection.source_path
+                                );
+
+                                println!(
+                                    "Type: {}",
+                                    selection.source_type
+                                );
+
+                                println!("============================");
+
+                                match save_selection_as_bookmark(
+                                    &selection,
+                                ) {
+                                    Ok(path) => {
+                                        println!();
+                                        println!(
+                                            "======================================"
+                                        );
+                                        println!(
+                                            "BOOKMARK CREATED SUCCESSFULLY"
+                                        );
+                                        println!(
+                                            "======================================"
+                                        );
+
+                                        println!(
+                                            "Markdown file: {}",
+                                            path.display()
+                                        );
+                                    }
+
+                                    Err(error) => {
+                                        eprintln!();
+                                        eprintln!(
+                                            "Failed to create bookmark: {}",
+                                            error
+                                        );
+                                    }
+                                }
+                            }
+
+                            Err(error) => {
+                                eprintln!(
+                                    "Selection capture failed: {}",
+                                    error
+                                );
+                            }
+                        }
                     }
                 }
             }
@@ -199,6 +250,14 @@ fn main() {
         .expect("Event loop failed");
 }
 
+/*
+ * ============================================================
+ * OCR
+ * ============================================================
+ *
+ * Opens an image picker, runs Tesseract OCR and then creates
+ * an image bookmark in the Moneta vault.
+ */
 fn run_ocr() {
     println!("\n[Moneta Capture]");
 
@@ -218,28 +277,68 @@ fn run_ocr() {
 
     let mut ocr = match OcrEngine::new() {
         Ok(engine) => engine,
+
         Err(error) => {
-            eprintln!("OCR initialization failed: {error}");
+            eprintln!(
+                "OCR initialization failed: {error}"
+            );
             return;
         }
     };
 
     match ocr.extract_text(&path) {
         Ok(text) => {
-            println!("\n========== OCR RESULT ==========\n");
+            println!();
+            println!("========== OCR RESULT ==========");
+            println!();
             println!("{text}");
             println!("================================");
 
-            // Automatically create and enrich bookmark
-            let vault_dir = Path::new("moneta-vault/bookmarks");
-            if let Ok(capture_service) = CaptureService::new(vault_dir) {
-                match capture_service.capture_image(&path, false) {
-                    Ok(mut bm) => {
-                        bm.ocr_text = Some(text);
-                        let _ = capture_service.save_and_enrich(bm);
-                        println!("Bookmark created and saved to vault.");
+            /*
+             * Automatically create the image bookmark.
+             */
+            let vault_dir = Path::new(
+                "moneta-vault/bookmarks"
+            );
+
+            match CaptureService::new(vault_dir) {
+                Ok(capture_service) => {
+                    match capture_service.capture_image(
+                        &path,
+                        false,
+                    ) {
+                        Ok(mut bookmark) => {
+                            bookmark.ocr_text = Some(text);
+
+                            match capture_service
+                                .save_and_enrich(bookmark)
+                            {
+                                Ok(_) => {
+                                    println!(
+                                        "Bookmark created and saved to vault."
+                                    );
+                                }
+
+                                Err(error) => {
+                                    eprintln!(
+                                        "Failed to save image bookmark: {error}"
+                                    );
+                                }
+                            }
+                        }
+
+                        Err(error) => {
+                            eprintln!(
+                                "Failed to create image bookmark: {error}"
+                            );
+                        }
                     }
-                    Err(e) => eprintln!("Failed to save image bookmark: {e}"),
+                }
+
+                Err(error) => {
+                    eprintln!(
+                        "Failed to initialize vault: {error}"
+                    );
                 }
             }
         }
@@ -248,4 +347,113 @@ fn run_ocr() {
             eprintln!("OCR failed: {error}");
         }
     }
+}
+
+/*
+ * ============================================================
+ * SELECTED TEXT -> MARKDOWN BOOKMARK
+ * ============================================================
+ */
+fn save_selection_as_bookmark(
+    selection: &capture::selection::SelectionData,
+) -> Result<PathBuf, String> {
+    /*
+     * A selected-text bookmark currently requires a source
+     * file path.
+     */
+    let source_path = selection
+        .source_path
+        .as_ref()
+        .ok_or_else(|| {
+            "No source file path was detected.".to_string()
+        })?;
+
+    /*
+     * Don't create an empty bookmark.
+     */
+    if selection.text.trim().is_empty() {
+        return Err(
+            "Selected text is empty.".into()
+        );
+    }
+
+    /*
+     * Generate a unique ID.
+     */
+    let id = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| {
+            format!("Could not get system time: {e}")
+        })?
+        .as_nanos()
+        .to_string();
+
+    /*
+     * Use the source document filename as the bookmark title.
+     *
+     * Example:
+     *
+     * C:\Documents\Research Paper.docx
+     *
+     * becomes:
+     *
+     * Research Paper
+     */
+    let title = Path::new(source_path)
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or("Untitled Bookmark")
+        .to_string();
+
+    /*
+     * Create the bookmark using the existing Moneta
+     * Bookmark structure.
+     */
+    let mut bookmark = Bookmark::new(
+        id,
+        source_path.clone(),
+        title,
+        selection.source_type.clone(),
+    );
+
+    /*
+     * Store the selected text.
+     */
+    bookmark.captured_text =
+        Some(selection.text.clone());
+
+    /*
+     * Local files don't currently have a URL.
+     */
+    bookmark.source_url = None;
+
+    /*
+     * Store it in the existing Markdown vault.
+     */
+    let vault_path =
+        "moneta-vault/bookmarks";
+
+    let storage = VaultStorage::new(vault_path)
+        .map_err(|e| {
+            format!(
+                "Could not initialize bookmark vault: {e}"
+            )
+        })?;
+
+    let bookmark_id =
+        bookmark.id.clone();
+
+    storage
+        .save(&bookmark)
+        .map_err(|e| {
+            format!(
+                "Could not save bookmark: {e}"
+            )
+        })?;
+
+    Ok(
+        PathBuf::from(vault_path)
+            .join(format!("{bookmark_id}.md"))
+    )
 }
