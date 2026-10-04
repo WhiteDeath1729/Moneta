@@ -105,6 +105,27 @@ impl VaultStorage {
         }
         Ok(self.bookmark_path(id))
     }
+
+    pub fn embeddings_dir(&self) -> PathBuf {
+        if let Some(parent) = self.root.parent() {
+            parent.join("embeddings")
+        } else {
+            self.root.join("embeddings")
+        }
+    }
+
+    pub fn save_embedding(&self, id: &str, embedding: &[f32]) -> io::Result<PathBuf> {
+        let dir = self.embeddings_dir();
+        fs::create_dir_all(&dir)?;
+        let path = dir.join(format!("{id}.bin"));
+        crate::ai::embeddings::save_embedding_binary(&path, embedding)?;
+        Ok(path)
+    }
+
+    pub fn load_embedding(&self, id: &str) -> io::Result<Vec<f32>> {
+        let path = self.embeddings_dir().join(format!("{id}.bin"));
+        crate::ai::embeddings::load_embedding_binary(&path)
+    }
 }
 
 pub fn extract_frontmatter(content: &str) -> io::Result<&str> {

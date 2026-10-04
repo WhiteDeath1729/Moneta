@@ -1,2 +1,6 @@
 /target
 *.db
+*.gguf
+models/llm/*.gguf
+models/llm/tokenizer.json
+models/embeddings/*.gguf

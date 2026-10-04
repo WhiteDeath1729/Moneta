@@ -14,6 +14,8 @@ pub struct Bookmark {
     pub content_hash: String,
     pub created_at: i64,
     pub updated_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
 }
 
 impl Bookmark {
@@ -37,6 +39,7 @@ impl Bookmark {
             content_hash: String::new(),
             created_at: timestamp,
             updated_at: timestamp,
+            summary: None,
         }
     }
 
@@ -50,4 +53,29 @@ fn current_timestamp() -> i64 {
         .duration_since(UNIX_EPOCH)
         .expect("System time is before UNIX epoch")
         .as_secs() as i64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_bookmark_backward_compatibility() {
+        let yaml = r#"
+id: '1790672986583839600'
+path: C:\WINDOWS\system32\ApplicationFrameHost.exe
+title: ApplicationFrameHost
+source_type: exe
+source_url: null
+captured_text: Josiah Claremont, widowed many years before...
+ocr_text: null
+tags: []
+content_hash: ''
+created_at: 1790672986
+updated_at: 1790672986
+"#;
+        let bm: Bookmark = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(bm.id, "1790672986583839600");
+        assert_eq!(bm.summary, None);
+    }
 }

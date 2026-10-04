@@ -387,7 +387,7 @@ mod tests {
         let embeddings = index.get_all_embeddings().unwrap();
         assert_eq!(embeddings.len(), 1);
         assert_eq!(embeddings[0].0, "bm-001");
-        assert_eq!(embeddings[0].1.len(), 128);
+        assert_eq!(embeddings[0].1.len(), ai.generate_embedding("test").len());
     }
 
     #[test]

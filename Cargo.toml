@@ -12,7 +12,7 @@ leptess = "0.14"
 rfd = "0.17.2"
 winit = "0.30"
 windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
-reqwest = { version = "0.12", features = ["rustls-tls", "json"] }
+reqwest = { version = "0.12", features = ["json", "blocking"] }
 scraper = "0.22"
 url = "2"
 axum = "0.8"
@@ -24,3 +24,6 @@ rusqlite = { version = "0.33", features = ["bundled"] }
 tower = { version = "0.5", features = ["util"] }
 winreg = "0.55"
 uiautomation = "0.25.1"
+candle-core = "0.9.0"
+candle-transformers = "0.9.0"
+tokenizers = { version = "0.21.0", default-features = false, features = ["fancy-regex"] }
