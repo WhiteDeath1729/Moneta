@@ -20,8 +20,10 @@ use global_hotkey::{
 };
 use rfd::FileDialog;
 use std::{
+    collections::HashSet,
+    io::{self, BufRead, Write},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
 use winit::{
@@ -49,19 +51,23 @@ fn main() {
     println!();
 
     println!("Shortcuts:");
-    println!("  Ctrl + Shift + O  -> OCR an image");
+    println!("  Ctrl + Shift + O  -> Bookmark file");
     println!("  Ctrl + Shift + S  -> Take a screenshot");
     println!("  Ctrl + Shift + B  -> Bookmark selected text");
+    println!("  Ctrl + Shift + F  -> Search bookmarks with a natural-language query");
+    println!("  Ctrl + Shift + R  -> Analyze screen text and find relevant bookmarks");
+    println!("  Ctrl + Shift + G  -> Open the bookmark graph");
     println!();
 
     /*
      * Start the bookmark web server in the background.
      * Keeps Chrome bookmark integration functioning.
      */
-    std::thread::spawn(|| {
+    let web_ai_engine = ai_engine.clone();
+    std::thread::spawn(move || {
         let runtime = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
         runtime.block_on(async {
-            capture::web::start_server().await;
+            capture::web::start_server(web_ai_engine).await;
         });
     });
 
@@ -74,21 +80,41 @@ fn main() {
     let manager =
         GlobalHotKeyManager::new().expect("Failed to initialize global hotkey manager");
 
-    let ocr_hotkey = HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyO);
+    let bookmark_file_hotkey =
+        HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyO);
     let screenshot_hotkey = HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyS);
     let selection_hotkey = HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyB);
+    let search_hotkey = HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyF);
+    let screen_search_hotkey =
+        HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyR);
+    let graph_hotkey = HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyG);
 
-    manager.register(ocr_hotkey).expect("Failed to register OCR shortcut");
+    manager
+        .register(bookmark_file_hotkey)
+        .expect("Failed to register bookmark file shortcut");
     manager.register(screenshot_hotkey).expect("Failed to register screenshot shortcut");
     manager.register(selection_hotkey).expect("Failed to register selection bookmark shortcut");
+    manager
+        .register(search_hotkey)
+        .expect("Failed to register bookmark search shortcut");
+    manager
+        .register(screen_search_hotkey)
+        .expect("Failed to register screen bookmark search shortcut");
+    manager
+        .register(graph_hotkey)
+        .expect("Failed to register bookmark graph shortcut");
 
-    println!("OCR shortcut registered.");
+    println!("Bookmark file shortcut registered.");
     println!("Screenshot shortcut registered.");
     println!("Selection bookmark shortcut registered.");
+    println!("Bookmark search shortcut registered.");
+    println!("Screen bookmark search shortcut registered.");
+    println!("Bookmark graph shortcut registered.");
     println!();
     println!("Waiting for shortcuts...");
 
     let receiver = GlobalHotKeyEvent::receiver();
+    let search_input_lock = Arc::new(Mutex::new(()));
 
     event_loop
         .run(move |event, _event_loop| {
@@ -100,13 +126,13 @@ fn main() {
                         continue;
                     }
 
-                    // OCR Hotkey
-                    if event.id == ocr_hotkey.id() {
+                    // Bookmark File Hotkey (formerly OCR)
+                    if event.id == bookmark_file_hotkey.id() {
                         println!();
                         println!("======================================");
-                        println!("OCR HOTKEY TRIGGERED");
+                        println!("BOOKMARK FILE HOTKEY TRIGGERED");
                         println!("======================================");
-                        run_ocr();
+                        run_bookmark_file();
                     }
 
                     // Screenshot Hotkey
@@ -164,73 +190,274 @@ fn main() {
                             }
                         }
                     }
+
+                    if event.id == search_hotkey.id() {
+                        let ai_clone = ai_engine.clone();
+                        let input_lock = search_input_lock.clone();
+                        std::thread::spawn(move || {
+                            prompt_and_search_bookmarks(&ai_clone, &input_lock);
+                        });
+                    }
+
+                    if event.id == screen_search_hotkey.id() {
+                        let ai_clone = ai_engine.clone();
+                        std::thread::spawn(move || {
+                            println!("\n[Moneta Screen Search]");
+                            match capture::screenshot::capture_screen_text() {
+                                Ok(text) => {
+                                    println!("\nScreen text recognized:");
+                                    println!("{text}");
+                                    if let Err(error) = search_bookmarks(&text, &ai_clone) {
+                                        eprintln!("Screen bookmark search failed: {error}");
+                                    }
+                                }
+                                Err(error) => {
+                                    eprintln!("Could not analyze screen text: {error}");
+                                }
+                            }
+                        });
+                    }
+
+                    if event.id == graph_hotkey.id() {
+                        let ai_clone = ai_engine.clone();
+                        std::thread::spawn(move || match generate_bookmark_graph(&ai_clone) {
+                            Ok(path) => {
+                                println!("Bookmark graph generated: {}", path.display());
+                                if let Err(error) =
+                                    std::process::Command::new("explorer.exe").arg(&path).spawn()
+                                {
+                                    eprintln!(
+                                        "Could not open bookmark graph in the browser: {error}"
+                                    );
+                                }
+                            }
+                            Err(error) => eprintln!("Could not generate bookmark graph: {error}"),
+                        });
+                    }
                 }
             }
         })
         .expect("Event loop failed");
 }
 
-/*
- * ============================================================
- * OCR
- * ============================================================
- */
-fn run_ocr() {
-    println!("\n[Moneta Capture]");
-
-    let path: Option<PathBuf> = FileDialog::new()
-        .add_filter("Images", &["png", "jpg", "jpeg", "bmp", "webp"])
-        .pick_file();
-
-    let Some(path) = path else {
-        println!("OCR cancelled.");
-        return;
-    };
-
-    println!("Reading: {}", path.display());
-
-    let mut ocr = match OcrEngine::new() {
-        Ok(engine) => engine,
+fn prompt_and_search_bookmarks(ai: &LocalAIEngine, input_lock: &Mutex<()>) {
+    let _input_guard = match input_lock.lock() {
+        Ok(guard) => guard,
         Err(error) => {
-            eprintln!("OCR initialization failed: {error}");
+            eprintln!("Could not acquire console input: {error}");
             return;
         }
     };
 
-    match ocr.extract_text(&path) {
-        Ok(text) => {
-            println!();
-            println!("========== OCR RESULT ==========");
-            println!("{text}");
-            println!("================================");
+    print!("\nDescribe the bookmarks you want to find: ");
+    if let Err(error) = io::stdout().flush() {
+        eprintln!("Could not display search prompt: {error}");
+        return;
+    }
 
-            let vault_dir = Path::new("moneta-vault/bookmarks");
-            match CaptureService::new(vault_dir) {
-                Ok(capture_service) => {
-                    match capture_service.capture_image(&path, false) {
-                        Ok(mut bookmark) => {
-                            bookmark.ocr_text = Some(text);
-                            match capture_service.save_and_enrich(bookmark) {
-                                Ok(_) => {
-                                    println!("Bookmark created and saved to vault.");
-                                }
-                                Err(error) => {
-                                    eprintln!("Failed to save image bookmark: {error}");
-                                }
-                            }
-                        }
-                        Err(error) => {
-                            eprintln!("Failed to create image bookmark: {error}");
-                        }
-                    }
-                }
-                Err(error) => {
-                    eprintln!("Failed to initialize vault: {error}");
-                }
+    let mut query = String::new();
+    if let Err(error) = io::stdin().lock().read_line(&mut query) {
+        eprintln!("Could not read bookmark search query: {error}");
+        return;
+    }
+
+    let query = query.trim();
+    if query.is_empty() {
+        println!("Bookmark search cancelled: query was empty.");
+        return;
+    }
+
+    if let Err(error) = search_bookmarks(query, ai) {
+        eprintln!("Bookmark search failed: {error}");
+    }
+}
+
+fn search_bookmarks(query: &str, ai: &LocalAIEngine) -> Result<(), String> {
+    let vault_path = Path::new("moneta-vault/bookmarks");
+    let storage = VaultStorage::new(vault_path)
+        .map_err(|error| format!("Could not open bookmark vault: {error}"))?;
+    let bookmarks = storage
+        .list_all()
+        .map_err(|error| format!("Could not list bookmarks: {error}"))?;
+
+    if bookmarks.is_empty() {
+        println!("No bookmarks are available to search.");
+        return Ok(());
+    }
+
+    let index_path = Path::new("moneta-vault/moneta_index.db");
+    let index = search::indexing::SqliteIndex::open(index_path)
+        .map_err(|error| format!("Could not open bookmark search index: {error}"))?;
+    let indexed_ids: HashSet<String> = index
+        .get_all_embeddings()
+        .map_err(|error| format!("Could not load bookmark embeddings: {error}"))?
+        .into_iter()
+        .filter_map(|(id, embedding)| (!embedding.is_empty()).then_some(id))
+        .collect();
+
+    let offline_ai = ai::OfflineAIService::with_engine(Arc::new(ai.clone()));
+    for bookmark in &bookmarks {
+        if !indexed_ids.contains(&bookmark.id) {
+            index
+                .index_bookmark(bookmark, Some(&offline_ai))
+                .map_err(|error| {
+                    format!(
+                        "Could not create search embedding for '{}': {error}",
+                        bookmark.title
+                    )
+                })?;
+        }
+    }
+
+    let engine = search::semantic::SearchEngine::new(Arc::new(index), Arc::new(offline_ai));
+    let results = engine.semantic_search(query, bookmarks.len());
+    if results.is_empty() {
+        println!("No relevant bookmarks found for: {query}");
+        return Ok(());
+    }
+
+    let bookmarks_by_id: std::collections::HashMap<&str, &Bookmark> = bookmarks
+        .iter()
+        .map(|bookmark| (bookmark.id.as_str(), bookmark))
+        .collect();
+
+    println!("\n========== RELEVANT BOOKMARKS ==========");
+    for (rank, result) in results.iter().enumerate() {
+        let Some(bookmark) = bookmarks_by_id.get(result.bookmark_id.as_str()) else {
+            continue;
+        };
+
+        println!(
+            "\n{}. {} (similarity: {:.3})",
+            rank + 1,
+            bookmark.title,
+            result.score
+        );
+        println!("   Type: {}", bookmark.source_type);
+        if let Some(url) = &bookmark.source_url {
+            println!("   URL: {url}");
+        } else if !bookmark.path.is_empty() {
+            println!("   Path: {}", bookmark.path);
+        }
+        if !bookmark.tags.is_empty() {
+            println!("   Tags: {}", bookmark.tags.join(", "));
+        }
+        if let Some(summary) = &bookmark.summary {
+            if !summary.trim().is_empty() {
+                println!("   Summary: {summary}");
             }
         }
+    }
+    println!("\n========================================");
+
+    Ok(())
+}
+
+fn generate_bookmark_graph(ai: &LocalAIEngine) -> Result<PathBuf, String> {
+    let storage = VaultStorage::new("moneta-vault/bookmarks")
+        .map_err(|error| format!("Could not open bookmark vault: {error}"))?;
+    let bookmarks = storage
+        .list_all()
+        .map_err(|error| format!("Could not list bookmarks: {error}"))?;
+    if bookmarks.is_empty() {
+        return Err("There are no bookmarks to display.".into());
+    }
+
+    let index = search::indexing::SqliteIndex::open("moneta-vault/moneta_index.db")
+        .map_err(|error| format!("Could not open bookmark search index: {error}"))?;
+    let offline_ai = ai::OfflineAIService::with_engine(Arc::new(ai.clone()));
+    let mut embeddings: std::collections::HashMap<String, Vec<f32>> = index
+        .get_all_embeddings()
+        .map_err(|error| format!("Could not load bookmark embeddings: {error}"))?
+        .into_iter()
+        .filter(|(_, embedding)| !embedding.is_empty())
+        .collect();
+
+    for bookmark in &bookmarks {
+        if !embeddings.contains_key(&bookmark.id) {
+            index
+                .index_bookmark(bookmark, Some(&offline_ai))
+                .map_err(|error| {
+                    format!(
+                        "Could not generate embedding for '{}': {error}",
+                        bookmark.title
+                    )
+                })?;
+        }
+    }
+    embeddings = index
+        .get_all_embeddings()
+        .map_err(|error| format!("Could not reload bookmark embeddings: {error}"))?
+        .into_iter()
+        .filter(|(_, embedding)| !embedding.is_empty())
+        .collect();
+
+    let mut graph = presentation::graph::KnowledgeGraph::new();
+    for bookmark in &bookmarks {
+        graph.add_bookmark(bookmark);
+    }
+    let mut graph_data = graph.build_graph_with_similarities(
+        &embeddings,
+        presentation::graph::SIMILARITY_EDGE_THRESHOLD,
+    );
+    let (search_history, history_status) =
+        presentation::graph::load_chrome_search_history();
+    graph_data.search_history = search_history;
+    graph_data.search_history_status = history_status;
+    let html = graph_data
+        .to_interactive_html()
+        .map_err(|error| format!("Could not render bookmark graph: {error}"))?;
+    let graph_path = Path::new("moneta-vault/bookmark-graph.html");
+    std::fs::write(graph_path, html)
+        .map_err(|error| format!("Could not save bookmark graph: {error}"))?;
+
+    Ok(graph_path.to_path_buf())
+}
+
+/*
+ * ============================================================
+ * BOOKMARK FILE
+ * ============================================================
+ */
+fn run_bookmark_file() {
+    println!("\n[Moneta Bookmark File]");
+
+    let path: Option<PathBuf> = FileDialog::new()
+        .add_filter(
+            "Supported Files",
+            &[
+                "png", "jpg", "jpeg", "bmp", "webp", "txt", "md", "epub", "pdf", "docx", "json",
+                "rs", "py", "js", "html",
+            ],
+        )
+        .add_filter("Images", &["png", "jpg", "jpeg", "bmp", "webp"])
+        .add_filter("Documents", &["txt", "md", "epub", "pdf", "docx"])
+        .add_filter("All Files", &["*"])
+        .pick_file();
+
+    let Some(path) = path else {
+        println!("File bookmarking cancelled.");
+        return;
+    };
+
+    println!("Bookmarking file: {}", path.display());
+    let vault_dir = Path::new("moneta-vault/bookmarks");
+    match CaptureService::new(vault_dir) {
+        Ok(capture_service) => match capture_service.capture_file(&path) {
+            Ok(bookmark) => {
+                println!();
+                println!("======================================");
+                println!("BOOKMARK CREATED SUCCESSFULLY");
+                println!("======================================");
+                println!("Title: {}", bookmark.title);
+                println!("ID: {}", bookmark.id);
+            }
+            Err(error) => {
+                eprintln!("Failed to bookmark file: {error}");
+            }
+        },
         Err(error) => {
-            eprintln!("OCR failed: {error}");
+            eprintln!("Failed to initialize vault: {error}");
         }
     }
 }
@@ -343,24 +570,35 @@ fn save_selection_as_bookmark(
     let vault_path = "moneta-vault/bookmarks";
     let storage = VaultStorage::new(vault_path)
         .map_err(|e| format!("Could not initialize bookmark vault: {e}"))?;
+    let offline_service = ai::OfflineAIService::with_engine(Arc::new(ai.clone()));
+    if bookmark.tags.is_empty() {
+        bookmark.tags = offline_service
+            .suggest_tags(&bookmark)
+            .into_iter()
+            .map(|tag| vault::metadata::MetadataService::normalize_tag(&tag.name))
+            .filter(|tag| !tag.is_empty())
+            .collect();
+    }
 
     // 5. Persist markdown bookmark
     storage.save(&bookmark)
         .map_err(|e| format!("Could not save bookmark: {e}"))?;
 
     // 6. Persist embedding vector to vault embeddings/ directory
-    if !analysis.embedding.is_empty() {
-        if let Err(e) = storage.save_embedding(&bookmark.id, &analysis.embedding) {
-            eprintln!("Warning: failed to persist binary embedding: {e}");
-        }
+    if analysis.embedding.is_empty() {
+        return Err("Could not generate a bookmark embedding.".into());
     }
+    storage
+        .save_embedding(&bookmark.id, &analysis.embedding)
+        .map_err(|e| format!("Could not save bookmark embedding: {e}"))?;
 
     // 7. Index in local SQLite database
     let db_path = Path::new("moneta-vault/moneta_index.db");
-    if let Ok(index) = search::indexing::SqliteIndex::open(db_path) {
-        let offline_service = ai::OfflineAIService::with_engine(Arc::new(ai.clone()));
-        let _ = index.index_bookmark(&bookmark, Some(&offline_service));
-    }
+    let index = search::indexing::SqliteIndex::open(db_path)
+        .map_err(|e| format!("Could not open bookmark search index: {e}"))?;
+    index
+        .index_bookmark_with_embedding(&bookmark, &offline_service, &analysis.embedding)
+        .map_err(|e| format!("Could not index bookmark: {e}"))?;
 
     println!();
     println!("======================================");

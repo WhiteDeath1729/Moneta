@@ -1,0 +1,19 @@
+---
+id: web-efec46d8afcc06d4
+path: Other bookmarks
+title: Social Psychology Network
+source_type: web
+source_url: https://www.socialpsychology.org/
+captured_text: 'Social Psychology Network Maintained by Scott Plous , Wesleyan University Join or Donate Maps Profiled Experts Graduate Programs Research Groups Forums Overview of Forums SPN on Facebook Listserv Message Center Job Posting Forum Add-a-Link Page Directories Professional Profiles Membership Directory SPN Websites Understanding Prejudice eInterview Action Teaching Research Randomizer Stanford Prison Experiment The Jigsaw Classroom Psychology News Center Social Psychology Pages Social Psychology Topics Professional Journals Teaching Resources Psychology Textbooks Online Psychology Studies Other Psychology Pages Links by Psychology Area Organizations & Conferences Psychology Career Center Ph.D. Program Rankings Clinical Psychology Programs Distance Learning and MOOCs Blogs, Podcasts, and RSS About the Network History and Mission Join or Donate to SPN Institutional Contributors Individual SPN Members Endorsements of the Network Site Usage Statistics SPN User Policy Contact Us Welcome to Social Psychology Network, one of the largest Internet sites devoted to psychological research and teaching. Create a better world with high-impact education Take a free social psychology course Offered through Wesleyan University Join the Network With members from over 100 countries Stay informed: @Climate_Psych The psychology, politics, and science of climate change Our Mission The mission of Social Psychology Network is to promote peace, social justice, and sustainable living through public education, research, and the advancement of psychology. Locate social psychology resources around the world: 2,000+ profiled experts from 50 countries 800+ research groups from 32 countries 300+ graduate programs from 45 countries Network News Alert: The White House has proposed deep cuts in science funding, including elimination of the National Science Foundation Social Psychology Program. To U.S. citizens who support science funding: visit this page to make your voice heard. Social Psychology Network is pleased to announce its new Advisory Board : Modupe Akinola (new) Robert Feldman (continuing) Susan Fiske (continuing) Shinobu Kitayama (new) David Myers (new) Peter Salovey (new) Free Psychology Course! Here''s some good news: anyone wanting to learn more about social psychology can take a free online Social Psychology course taught by SPN''s Executive Director! Thus far, the course has cumulatively enrolled over 1.4 million people from nearly 200 countries. Members of the current class also have the option of purchasing an official course certificate for a fee that supports the Network. Since 1996, the pages of SocialPsychology.org and its partner sites have been viewed 395.3 million times. More Statistics► Social Psychology Network and its partner sites are supported in part by the National Science Foundation (grants #9950517, #0339002, #0843855, and #1456048). ©1996-2026, S. Plous Psychology Headlines From Around the World Loneliness Tied to Loss of Nearly 6 Years of Good Health A Clock Change Dilemma Pits Science Against Politics Trump Says Nobel Panel Not Awarding Him Peace Prize Stains Norway Anthropic AI Sent a Fake Murder Tip to Philadelphia Police Social Platforms Ban Violent Content. Does a Livestream Execution Count? Army Caught Off Guard by Hegseth''s Plan to Livestream Execution Watch Navi Pillay Win Nobel Peace Prize for Upholding Global Justice 2026 Nobel Peace Prize Awarded to Navi Pillay News on Twitter ( 378,609 followers) News Feed ( 35,797 subscribers) Visit us on Facebook ( 252,914 likes)'
+ocr_text: null
+tags:
+- countries
+- network
+- news
+- psychology
+- science
+- social
+content_hash: 9adb6fa7787e60f4
+created_at: 1780307320
+updated_at: 1780307320
+---

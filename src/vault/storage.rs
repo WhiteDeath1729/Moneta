@@ -107,7 +107,12 @@ impl VaultStorage {
     }
 
     pub fn embeddings_dir(&self) -> PathBuf {
-        if let Some(parent) = self.root.parent() {
+        if self
+            .root
+            .file_name()
+            .is_some_and(|name| name == "bookmarks")
+            && let Some(parent) = self.root.parent()
+        {
             parent.join("embeddings")
         } else {
             self.root.join("embeddings")

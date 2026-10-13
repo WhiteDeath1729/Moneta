@@ -1,9 +1,12 @@
 use std::io;
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use crate::ai::{LocalAIEngine, OfflineAIService};
 use crate::capture::file::FileCaptureService;
 use crate::capture::ocr::OcrEngine;
+use crate::search::indexing::SqliteIndex;
 use crate::vault::bookmark::Bookmark;
 use crate::vault::context::ContextService;
 use crate::vault::metadata::MetadataService;
@@ -11,29 +14,41 @@ use crate::vault::storage::VaultStorage;
 
 pub struct CaptureService {
     storage: VaultStorage,
+    ai: OfflineAIService,
 }
 
 impl CaptureService {
     pub fn new<P: AsRef<Path>>(vault_dir: P) -> io::Result<Self> {
+        Self::new_with_ai(vault_dir, Arc::new(LocalAIEngine::default()))
+    }
+
+    pub fn new_with_ai<P: AsRef<Path>>(
+        vault_dir: P,
+        engine: Arc<LocalAIEngine>,
+    ) -> io::Result<Self> {
         let storage = VaultStorage::new(vault_dir)?;
-        Ok(Self { storage })
+        let ai = OfflineAIService::with_engine(engine);
+        Ok(Self { storage, ai })
     }
 
     pub fn storage(&self) -> &VaultStorage {
         &self.storage
     }
 
-    /// Captures a URL bookmark, optionally fetching the HTML page title.
+    /// Captures the webpage text before enriching a URL bookmark.
     pub fn capture_url(
         &self,
         url: &str,
         custom_title: Option<&str>,
         folder_path: Option<&str>,
     ) -> io::Result<Bookmark> {
-        if url::Url::parse(url).is_err() {
+        if !url::Url::parse(url)
+            .map(|url| matches!(url.scheme(), "http" | "https"))
+            .unwrap_or(false)
+        {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                format!("Invalid URL: {url}"),
+                format!("Invalid HTTP or HTTPS URL: {url}"),
             ));
         }
 
@@ -57,6 +72,23 @@ impl CaptureService {
         );
 
         bookmark.source_url = Some(url.to_string());
+        match reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(8))
+            .build()
+            .and_then(|client| client.get(url).send())
+            .and_then(reqwest::blocking::Response::error_for_status)
+            .and_then(reqwest::blocking::Response::text)
+        {
+            Ok(html) => {
+                let page_text = crate::capture::web::extract_webpage_text(&html);
+                if !page_text.is_empty() {
+                    bookmark.captured_text = Some(page_text);
+                }
+            }
+            Err(error) => {
+                eprintln!("Could not fetch webpage text for {url}: {error}");
+            }
+        }
         bookmark.created_at = timestamp;
         bookmark.updated_at = timestamp;
 
@@ -107,7 +139,7 @@ impl CaptureService {
         let bookmark = match extension.as_str() {
             "epub" => FileCaptureService::capture_epub_file(path_ref)?,
             "png" | "jpg" | "jpeg" | "bmp" | "webp" => {
-                self.capture_image(path_ref, true)?
+                return self.capture_image(path_ref, true);
             }
             _ => FileCaptureService::capture_text_file(path_ref)?,
         };
@@ -151,6 +183,15 @@ impl CaptureService {
 
     /// Enriches a bookmark with context, computes content hash, and persists to vault.
     pub fn save_and_enrich(&self, mut bookmark: Bookmark) -> io::Result<Bookmark> {
+        let tags = self.ai.suggest_tags(&bookmark);
+        bookmark.tags = tags
+            .into_iter()
+            .map(|tag| MetadataService::normalize_tag(&tag.name))
+            .filter(|tag| !tag.is_empty())
+            .collect();
+        bookmark.tags.sort();
+        bookmark.tags.dedup();
+
         // Compute content hash
         let hash_input = format!(
             "{}:{}:{}:{}",
@@ -161,19 +202,39 @@ impl CaptureService {
         );
         bookmark.content_hash = MetadataService::compute_content_hash(&hash_input);
 
-        // Normalize existing tags
-        bookmark.tags = bookmark
-            .tags
-            .iter()
-            .map(|t| MetadataService::normalize_tag(t))
-            .filter(|t| !t.is_empty())
-            .collect();
-
         // Enrich with context
         let _ctx = ContextService::capture_context(&bookmark.id);
 
-        // Save to authoritative vault
+        let embedding = self.ai.generate_embedding(&bookmark.text_for_embedding());
+        if embedding.is_empty() {
+            return Err(io::Error::other(format!(
+                "Could not generate an embedding for bookmark '{}'",
+                bookmark.title
+            )));
+        }
+
+        // Save the bookmark and both derived search representations.
         self.storage.save(&bookmark)?;
+        self.storage.save_embedding(&bookmark.id, &embedding)?;
+
+        let index_directory = if self
+            .storage
+            .root()
+            .file_name()
+            .is_some_and(|name| name == "bookmarks")
+        {
+            self.storage
+                .root()
+                .parent()
+                .unwrap_or(self.storage.root())
+        } else {
+            self.storage.root()
+        };
+        let index_path = index_directory.join("moneta_index.db");
+        let index = SqliteIndex::open(index_path).map_err(io::Error::other)?;
+        index
+            .index_bookmark_with_embedding(&bookmark, &self.ai, &embedding)
+            .map_err(io::Error::other)?;
 
         Ok(bookmark)
     }
@@ -197,7 +258,7 @@ mod tests {
 
         let bm = service
             .capture_url(
-                "https://www.rust-lang.org/",
+                "http://127.0.0.1:1/",
                 Some("Rust Official"),
                 Some("Programming"),
             )
@@ -207,6 +268,41 @@ mod tests {
         assert_eq!(bm.source_type, "web");
         assert!(!bm.content_hash.is_empty());
         assert!(service.storage().load(&bm.id).is_ok());
+        assert!(!bm.tags.is_empty());
+        assert!(!service.storage().load_embedding(&bm.id).unwrap().is_empty());
+
+        let index = SqliteIndex::open(temp_dir.join("moneta_index.db")).unwrap();
+        let embeddings = index.get_all_embeddings().unwrap();
+        assert_eq!(embeddings.len(), 1);
+        assert_eq!(embeddings[0].0, bm.id);
+        assert!(!embeddings[0].1.is_empty());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_image_enrichment_persists_embedding_from_ocr_text_only() {
+        let temp_dir = std::env::temp_dir().join("moneta_image_enrichment_test");
+        let engine = Arc::new(LocalAIEngine::default());
+        let service = CaptureService::new_with_ai(&temp_dir, engine.clone()).unwrap();
+        let mut bookmark = Bookmark::new(
+            "image-ocr-test".into(),
+            "screenshot.png".into(),
+            "Screenshot".into(),
+            "image".into(),
+        );
+        bookmark.captured_text = Some("This text must not affect the vector.".into());
+        bookmark.ocr_text = Some("Recognized OCR content about astronomy.".into());
+
+        let saved = service.save_and_enrich(bookmark).unwrap();
+        let expected = engine.generate_embedding("Recognized OCR content about astronomy.");
+        let binary_embedding = service.storage().load_embedding(&saved.id).unwrap();
+        let index = SqliteIndex::open(temp_dir.join("moneta_index.db")).unwrap();
+        let indexed_embedding = index.get_all_embeddings().unwrap();
+
+        assert_eq!(binary_embedding, expected);
+        assert_eq!(indexed_embedding[0].1, expected);
+        assert!(!saved.tags.is_empty());
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

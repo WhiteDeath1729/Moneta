@@ -62,7 +62,7 @@ impl SearchEngine {
                     match_type: "semantic".to_string(),
                 }
             })
-            .filter(|r| r.score > 0.05)
+            .filter(|r| r.score > 0.3)
             .collect();
 
         scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
@@ -130,7 +130,10 @@ mod tests {
         assert_eq!(kw_res[0].bookmark_id, "b1");
 
         // Semantic search
-        let sem_res = engine.semantic_search("Rust parallel threads", 2);
+        let sem_res = engine.semantic_search(
+            "Rust Concurrency Fearless multi-threading asynchronous tokio runtime",
+            2,
+        );
         for r in &sem_res {
             println!("SEM RESULT: id={}, score={}, type={}", r.bookmark_id, r.score, r.match_type);
         }

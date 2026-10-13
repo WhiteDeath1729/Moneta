@@ -80,7 +80,7 @@ syncButton.addEventListener("click", async () => {
             countElement.textContent = result.count;
 
             message.textContent =
-                `Synced ${result.count} bookmarks to Moneta.`;
+                result.message || `Synced ${result.count} bookmarks to Moneta.`;
 
             statusDot.className = "dot connected";
             statusText.textContent = "Moneta connected";

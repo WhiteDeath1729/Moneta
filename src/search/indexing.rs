@@ -196,27 +196,8 @@ impl SqliteIndex {
 
         // 5. Generate and store embeddings if AI service provided
         if let Some(ai_service) = ai {
-            let text_to_embed = format!(
-                "{} {} {}",
-                bookmark.title,
-                bookmark.captured_text.as_deref().unwrap_or(""),
-                bookmark.ocr_text.as_deref().unwrap_or("")
-            );
-            let embedding = ai_service.generate_embedding(&text_to_embed);
-            let serialized = serialize_vector(&embedding);
-
-            conn.execute(
-                "DELETE FROM embeddings WHERE bookmark_id = ?1",
-                params![bookmark.id],
-            )?;
-
-            conn.execute(
-                r#"
-                INSERT INTO embeddings (bookmark_id, model, vector_ref)
-                VALUES (?1, ?2, ?3)
-                "#,
-                params![bookmark.id, ai_service.embedding_model_name(), serialized],
-            )?;
+            let embedding = ai_service.generate_embedding(&bookmark.text_for_embedding());
+            self.store_embedding(&conn, bookmark, ai_service, &embedding)?;
         }
 
         // 6. Update FTS index if table exists
@@ -239,6 +220,41 @@ impl SqliteIndex {
             ],
         );
 
+        Ok(())
+    }
+
+    pub fn index_bookmark_with_embedding(
+        &self,
+        bookmark: &Bookmark,
+        ai_service: &OfflineAIService,
+        embedding: &[f32],
+    ) -> rusqlite::Result<()> {
+        self.index_bookmark(bookmark, None)?;
+        let conn = self.conn.lock().unwrap();
+        self.store_embedding(&conn, bookmark, ai_service, embedding)
+    }
+
+    fn store_embedding(
+        &self,
+        conn: &Connection,
+        bookmark: &Bookmark,
+        ai_service: &OfflineAIService,
+        embedding: &[f32],
+    ) -> rusqlite::Result<()> {
+        let serialized = serialize_vector(embedding);
+
+        conn.execute(
+            "DELETE FROM embeddings WHERE bookmark_id = ?1",
+            params![bookmark.id],
+        )?;
+
+        conn.execute(
+            r#"
+            INSERT INTO embeddings (bookmark_id, model, vector_ref)
+            VALUES (?1, ?2, ?3)
+            "#,
+            params![bookmark.id, ai_service.embedding_model_name(), serialized],
+        )?;
         Ok(())
     }
 

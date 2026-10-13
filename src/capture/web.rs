@@ -1,13 +1,17 @@
 use axum::{
     body::Bytes,
+    extract::{DefaultBodyLimit, State},
     http::StatusCode,
     routing::{get, post},
     Json, Router,
 };
+use scraper::{ElementRef, Html, Selector, node::Node};
 use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::ai::LocalAIEngine;
+use crate::capture::orchestrator::CaptureService;
 use crate::vault::bookmark::Bookmark;
 use crate::vault::metadata::TagInfo;
 use crate::vault::storage::VaultStorage;
@@ -48,6 +52,13 @@ impl ChromeBookmark {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BookmarkSyncResponse {
+    status: String,
+    synced: usize,
+    page_content_failures: Vec<String>,
+}
+
 async fn health_check() -> &'static str {
     "OK"
 }
@@ -57,6 +68,7 @@ async fn health_check() -> &'static str {
 // ============================================================
 
 async fn receive_selection(
+    State(engine): State<Arc<LocalAIEngine>>,
     body: Bytes,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let selection: SelectionBookmark = match serde_json::from_slice(&body) {
@@ -82,7 +94,7 @@ async fn receive_selection(
         ));
     }
 
-    if url::Url::parse(&selection.url).is_err() {
+    if !is_http_url(&selection.url) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
@@ -107,40 +119,47 @@ async fn receive_selection(
     );
 
     bookmark.source_url = Some(selection.url.clone());
-    bookmark.captured_text = Some(selection.selected_text.clone());
-
-    let storage = match VaultStorage::new("moneta-vault/bookmarks") {
-        Ok(storage) => storage,
+    let client = match webpage_client() {
+        Ok(client) => client,
         Err(error) => {
-            eprintln!("Failed to open Moneta markdown vault: {error}");
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({
-                    "status": "error",
-                    "message": error.to_string()
-                })),
-            ));
+            return Err(internal_error(error));
+        }
+    };
+    let (page_text, page_content_error) = match fetch_webpage_text(&client, &selection.url).await {
+        Ok(text) => (text, None),
+        Err(error) => {
+            eprintln!("Could not fetch selected webpage {}: {error}", selection.url);
+            (String::new(), Some(error))
+        }
+    };
+    bookmark.captured_text = Some(format!(
+        "Selected text:\n{}\n\nFull webpage:\n{}",
+        selection.selected_text, page_text
+    ));
+
+    let capture_service = match CaptureService::new_with_ai(
+        "moneta-vault/bookmarks",
+        engine,
+    ) {
+        Ok(service) => service,
+        Err(error) => {
+            return Err(internal_error(error));
         }
     };
 
-    match storage.save(&bookmark) {
-        Ok(_) => {
+    match capture_service.save_and_enrich(bookmark) {
+        Ok(bookmark) => {
             println!("Web selection saved: {}.md", bookmark.id);
             Ok(Json(serde_json::json!({
                 "status": "ok",
                 "id": bookmark.id,
-                "path": format!("moneta-vault/bookmarks/{}.md", bookmark.id)
+                "path": format!("moneta-vault/bookmarks/{}.md", bookmark.id),
+                "page_content_error": page_content_error
             })))
         }
         Err(error) => {
             eprintln!("Failed to save web selection: {error}");
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({
-                    "status": "error",
-                    "message": error.to_string()
-                })),
-            ))
+            Err(internal_error(error))
         }
     }
 }
@@ -150,8 +169,9 @@ async fn receive_selection(
 // ============================================================
 
 async fn receive_bookmarks(
+    State(engine): State<Arc<LocalAIEngine>>,
     body: Bytes,
-) -> Result<(StatusCode, &'static str), (StatusCode, String)> {
+) -> Result<Json<BookmarkSyncResponse>, (StatusCode, String)> {
     let json_val: serde_json::Value = serde_json::from_slice(&body)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Malformed JSON: {e}")))?;
 
@@ -194,18 +214,37 @@ async fn receive_bookmarks(
         }
     };
 
-    let storage = match VaultStorage::new("moneta-vault/bookmarks") {
-        Ok(storage) => storage,
-        Err(error) => {
-            eprintln!("Failed to open Moneta vault: {error}");
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to open vault: {error}"),
-            ));
-        }
-    };
+    let client = webpage_client().map_err(internal_error_text)?;
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(8));
+    let mut fetch_tasks = tokio::task::JoinSet::new();
+    for (index, chrome_bookmark) in bookmarks_list.iter().enumerate() {
+        let client = client.clone();
+        let semaphore = semaphore.clone();
+        let url = chrome_bookmark.url.clone();
+        fetch_tasks.spawn(async move {
+            let _permit = semaphore
+                .acquire_owned()
+                .await
+                .map_err(|error| format!("Could not schedule webpage fetch: {error}"))?;
+            Ok::<_, String>((index, fetch_webpage_text(&client, &url).await))
+        });
+    }
 
-    for chrome_bookmark in bookmarks_list {
+    let mut page_texts: Vec<Option<Result<String, String>>> =
+        std::iter::repeat_with(|| None).take(bookmarks_list.len()).collect();
+    while let Some(task_result) = fetch_tasks.join_next().await {
+        let (index, page_text) = task_result
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+            .map_err(internal_error_text)?;
+        page_texts[index] = Some(page_text);
+    }
+
+    let capture_service = CaptureService::new_with_ai("moneta-vault/bookmarks", engine)
+        .map_err(internal_error_text)?;
+    let mut page_content_failures = Vec::new();
+    let synced = bookmarks_list.len();
+
+    for (chrome_bookmark, page_text) in bookmarks_list.into_iter().zip(page_texts) {
         let id = create_bookmark_id(&chrome_bookmark);
 
         let mut bookmark = Bookmark::new(
@@ -216,6 +255,14 @@ async fn receive_bookmarks(
         );
 
         bookmark.source_url = Some(chrome_bookmark.url.clone());
+        match page_text.expect("each bookmark webpage fetch task must complete") {
+            Ok(text) => bookmark.captured_text = Some(text),
+            Err(error) => {
+                let failure = format!("{} ({}): {error}", chrome_bookmark.title, chrome_bookmark.url);
+                eprintln!("Webpage text unavailable for bookmark: {failure}");
+                page_content_failures.push(failure);
+            }
+        }
 
         // Chrome timestamp may be milliseconds or seconds
         let ts = if chrome_bookmark.created_at_in_chrome > 1_000_000_000_000 {
@@ -226,18 +273,105 @@ async fn receive_bookmarks(
         bookmark.created_at = ts;
         bookmark.updated_at = ts;
 
-        if let Err(error) = storage.save(&bookmark) {
-            eprintln!("Failed to save '{}': {}", bookmark.title, error);
+        let title = bookmark.title.clone();
+        if let Err(error) = capture_service.save_and_enrich(bookmark) {
+            eprintln!("Failed to save '{}': {}", title, error);
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Failed to save bookmark: {error}"),
             ));
         } else {
-            println!("Saved: {} -> {}", bookmark.title, chrome_bookmark.url);
+            println!("Saved: {} -> {}", title, chrome_bookmark.url);
         }
     }
 
-    Ok((StatusCode::OK, "OK"))
+    Ok(Json(BookmarkSyncResponse {
+        status: "ok".into(),
+        synced,
+        page_content_failures,
+    }))
+}
+
+fn is_http_url(value: &str) -> bool {
+    url::Url::parse(value)
+        .map(|url| matches!(url.scheme(), "http" | "https"))
+        .unwrap_or(false)
+}
+
+fn webpage_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()
+        .map_err(|error| format!("Could not initialize webpage fetcher: {error}"))
+}
+
+async fn fetch_webpage_text(client: &reqwest::Client, url: &str) -> Result<String, String> {
+    if !is_http_url(url) {
+        return Err("Bookmark URL is not an HTTP or HTTPS webpage".into());
+    }
+
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|error| error.to_string())?
+        .error_for_status()
+        .map_err(|error| error.to_string())?;
+    let html = response
+        .text()
+        .await
+        .map_err(|error| format!("Could not read webpage response: {error}"))?;
+    Ok(extract_webpage_text(&html))
+}
+
+pub(crate) fn extract_webpage_text(html: &str) -> String {
+    let document = Html::parse_document(html);
+    let body_selector = Selector::parse("body").expect("static body selector is valid");
+    let Some(body) = document.select(&body_selector).next() else {
+        return String::new();
+    };
+
+    let mut text_parts = Vec::new();
+    collect_page_text(body, &mut text_parts);
+    text_parts.join(" ")
+}
+
+fn collect_page_text(element: ElementRef<'_>, text_parts: &mut Vec<String>) {
+    for child in element.children() {
+        match child.value() {
+            Node::Text(text) => {
+                let text = text.trim();
+                if !text.is_empty() {
+                    text_parts.push(text.to_string());
+                }
+            }
+            Node::Element(node)
+                if matches!(
+                    node.name(),
+                    "script" | "style" | "noscript" | "template" | "svg"
+                ) => {}
+            Node::Element(_) => {
+                if let Some(child_element) = ElementRef::wrap(child) {
+                    collect_page_text(child_element, text_parts);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn internal_error(error: impl std::fmt::Display) -> (StatusCode, Json<serde_json::Value>) {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(serde_json::json!({
+            "status": "error",
+            "message": error.to_string()
+        })),
+    )
+}
+
+fn internal_error_text(error: impl std::fmt::Display) -> (StatusCode, String) {
+    (StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
 }
 
 // For chrome bookmark ID generation
@@ -301,27 +435,39 @@ async fn suggest_tags(
 }
 
 pub fn create_router() -> Router {
+    create_router_with_engine(Arc::new(LocalAIEngine::default()))
+}
+
+fn create_router_with_engine(engine: Arc<LocalAIEngine>) -> Router {
     Router::new()
         .route("/health", get(health_check))
-        .route("/bookmarks", post(receive_bookmarks))
+        .route(
+            "/bookmarks",
+            post(receive_bookmarks).layer(DefaultBodyLimit::max(8 * 1024 * 1024)),
+        )
         .route("/selection", post(receive_selection))
         .route("/tags/suggest", post(suggest_tags))
+        .with_state(engine)
 }
 
 // SERVER
-pub async fn start_server() {
-    let app = create_router();
+pub async fn start_server(engine: Arc<LocalAIEngine>) {
+    let app = create_router_with_engine(engine);
     let addr = SocketAddr::from(([127, 0, 0, 1], 8765));
 
     println!("Moneta bookmark API listening on {addr}");
 
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .expect("Failed to bind Moneta bookmark API");
+    let listener = match tokio::net::TcpListener::bind(addr).await {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("Warning: Could not bind Moneta bookmark API on {addr}: {e}. Continuing without local bookmark server.");
+            return;
+        }
+    };
 
-    axum::serve(listener, app)
-        .await
-        .expect("Moneta bookmark API failed");
+    if let Err(e) = axum::serve(listener, app).await {
+        eprintln!("Moneta bookmark API stopped: {e}");
+    }
 }
 
 #[cfg(test)]
@@ -347,12 +493,27 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
     }
 
+    #[test]
+    fn test_extract_webpage_text_uses_page_body_and_skips_nonvisible_content() {
+        let text = extract_webpage_text(
+            "<html><head><title>Head title</title></head><body>\
+             <h1>Page heading</h1><p>Full article text.</p>\
+             <script>ignored_script()</script><style>.hidden{display:none}</style>\
+             </body></html>",
+        );
+
+        assert!(text.contains("Page heading"));
+        assert!(text.contains("Full article text."));
+        assert!(!text.contains("ignored_script"));
+        assert!(!text.contains("display:none"));
+    }
+
     #[tokio::test]
     async fn test_valid_single_bookmark() {
         let app = create_router();
         let payload = serde_json::json!({
             "title": "2024BCS0301 - Rust Research",
-            "url": "https://www.rust-lang.org/",
+            "url": "http://127.0.0.1:1/",
             "folder_path": "Academic/2024BCS0301",
             "created_at_in_chrome": 1727520000
         });
@@ -425,13 +586,13 @@ mod tests {
         let payload = serde_json::json!([
             {
                 "title": "Google",
-                "url": "https://google.com",
+                "url": "http://127.0.0.1:1/google",
                 "folder_path": "Bookmarks Bar",
                 "created_at_in_chrome": 1757800000000i64
             },
             {
                 "title": "Rust",
-                "url": "https://www.rust-lang.org",
+                "url": "http://127.0.0.1:1/rust",
                 "folder_path": "Bookmarks Bar/Programming",
                 "created_at_in_chrome": 1757800001000i64
             }
@@ -450,6 +611,26 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_bookmark_import_accepts_payloads_over_default_body_limit() {
+        let app = create_router();
+        let body = vec![b' '; 3 * 1024 * 1024];
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/bookmarks")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

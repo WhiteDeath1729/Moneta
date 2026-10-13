@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Moneta</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body class="obsidian-theme">
+  <!-- Universe Zoom Loading Screen (Paragraph with least priority but fully implemented) -->
+  <div id="universe-loading-screen" class="universe-loader">
+    <canvas id="universe-canvas"></canvas>
+    <div class="universe-overlay">
+      <div class="cosmic-title-wrap">
+        <h1 class="cosmic-logo">MONETA</h1>
+        <p class="cosmic-subtitle">Local Knowledge & Bookmark Vault</p>
+        <span class="cosmic-badge">100% Offline • No AI APIs</span>
+      </div>
+      <button id="skip-intro-btn" class="skip-intro">Click to Enter Vault &rarr;</button>
+    </div>
+  </div>
+
+  <!-- Custom Frameless Obsidian Titlebar -->
+  <header class="app-titlebar" data-tauri-drag-region>
+    <div class="titlebar-left">
+      <button class="nav-btn icon-btn" id="btn-nav-back" title="Back (Alt+Left)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+      </button>
+      <button class="nav-btn icon-btn" id="btn-nav-forward" title="Forward (Alt+Right)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+      </button>
+    </div>
+
+    <!-- Obsidian Tabs Bar -->
+    <div class="tabs-container" id="tabs-container">
+      <!-- Dynamic Tabs -->
+      <div class="tab-item" data-tab-id="orchard" title="Orchard">
+        <span class="tab-title">Orchard</span>
+        <span class="tab-close" data-close-id="orchard">&times;</span>
+      </div>
+      <div class="tab-item" data-tab-id="people" title="People">
+        <span class="tab-title">People</span>
+        <span class="tab-close" data-close-id="people">&times;</span>
+      </div>
+      <div class="tab-item active" data-tab-id="draft" title="draft">
+        <span class="tab-title">draft</span>
+        <span class="tab-close" data-close-id="draft">&times;</span>
+      </div>
+      <div class="tab-item" data-tab-id="keerthan-test-1" title="Keerthan test 1">
+        <span class="tab-title">Keerthan test 1</span>
+        <span class="tab-close" data-close-id="keerthan-test-1">&times;</span>
+      </div>
+      <div class="tab-item" data-tab-id="graph-view" title="Graph view">
+        <span class="tab-icon">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><circle cx="6" cy="18" r="3"/><line x1="8.5" y1="7.5" x2="16" y2="16"/><line x1="6" y1="9" x2="6" y2="15"/></svg>
+        </span>
+        <span class="tab-title">Graph view</span>
+        <span class="tab-close" data-close-id="graph-view">&times;</span>
+      </div>
+      <button class="tab-add-btn" id="btn-add-tab" title="New Tab">+</button>
+    </div>
+
+    <!-- Window Controls -->
+    <div class="window-controls">
+      <button class="win-btn" id="btn-win-min" title="Minimize">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="12" x2="20" y2="12"></line></svg>
+      </button>
+      <button class="win-btn" id="btn-win-max" title="Maximize">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
+      </button>
+      <button class="win-btn win-btn-close" id="btn-win-close" title="Close">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Obsidian App Layout -->
+  <div class="app-workspace">
+    <!-- Left Ribbon -->
+    <nav class="obsidian-ribbon">
+      <div class="ribbon-top">
+        <button class="ribbon-btn active" id="ribbon-files-btn" title="Files (Ctrl+Shift+E)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+        </button>
+        <button class="ribbon-btn" id="ribbon-search-btn" title="Search Bookmarks (Ctrl+Shift+F)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        </button>
+        <button class="ribbon-btn" id="ribbon-graph-btn" title="Open Graph View (Ctrl+Shift+G)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><circle cx="6" cy="18" r="3"/><line x1="8.5" y1="7.5" x2="16" y2="16"/><line x1="6" y1="9" x2="6" y2="15"/></svg>
+        </button>
+        <button class="ribbon-btn" id="ribbon-bookmark-list-btn" title="Bookmarks List">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>
+        </button>
+        <button class="ribbon-btn" id="ribbon-screenshot-btn" title="Take Screenshot (Ctrl+Shift+S)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+        </button>
+        <button class="ribbon-btn" id="ribbon-screen-search-btn" title="Analyze Screen Text & Bookmarks (Ctrl+Shift+R)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8V4h4"/><path d="M20 8V4h-4"/><path d="M4 16v4h4"/><path d="M20 16v4h-4"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+
+        <div class="ribbon-divider"></div>
+
+        <!-- RAINBOW CHANGING BOOKMARK BUTTON (Matching Image 3) -->
+        <div class="rainbow-btn-wrapper" title="Bookmark File (Ctrl+Shift+O)">
+          <button id="rainbow-bookmark-btn" class="rainbow-glow-pill">
+            <span class="rainbow-btn-text">Bookmark file</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="ribbon-bottom">
+        <button class="ribbon-btn" id="ribbon-shortcuts-btn" title="Shortcuts Cheatsheet">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+        </button>
+        <button class="ribbon-btn" id="ribbon-settings-btn" title="Settings & Windows Integration">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        </button>
+      </div>
+    </nav>
+
+    <!-- Left Collapsible Sidebar -->
+    <aside class="obsidian-sidebar" id="obsidian-sidebar">
+      <div class="sidebar-header">
+        <div class="vault-brand">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+          <span class="vault-name">Moneta Vault</span>
+        </div>
+        <div class="sidebar-actions">
+          <button class="sidebar-action-btn" id="btn-sidebar-new-note" title="New Note">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+          </button>
+          <button class="sidebar-action-btn" id="btn-sidebar-collapse-all" title="Collapse All">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 14 10 14 10 20"></polyline><polyline points="20 10 14 10 14 4"></polyline><line x1="14" y1="10" x2="21" y2="3"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="sidebar-search-box">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input type="text" id="sidebar-filter-input" placeholder="Filter vault files..." autocomplete="off">
+      </div>
+
+      <!-- Tree Explorer View -->
+      <div class="vault-tree-container" id="vault-tree">
+        <!-- Rendered by JS -->
+      </div>
+    </aside>
+
+    <!-- Main Content Workspace Area -->
+    <main class="obsidian-main">
+      <!-- 1. Document / Note Editor View -->
+      <section id="view-editor" class="view-panel active">
+        <div class="editor-header-bar">
+          <div class="doc-breadcrumbs">
+            <span id="doc-breadcrumb-folder">Writing</span>
+            <span class="separator">/</span>
+            <span id="doc-breadcrumb-title">draft</span>
+          </div>
+          <div class="doc-actions">
+            <button class="doc-action-btn" id="btn-toggle-preview" title="Reading View / Edit">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            </button>
+            <button class="doc-action-btn" id="btn-open-graph-for-note" title="Open in Graph View">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><circle cx="6" cy="18" r="3"/><line x1="8.5" y1="7.5" x2="16" y2="16"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="document-scroll-container">
+          <div class="obsidian-document">
+            <h1 class="document-title" id="document-title" contenteditable="true" spellcheck="false">draft</h1>
+
+            <!-- Bookmark Metadata Chip Bar (if bookmark) -->
+            <div id="document-meta-card" class="doc-meta-card hidden">
+              <div class="meta-row">
+                <span class="meta-label">Source:</span>
+                <a id="meta-source-link" class="meta-link" href="#" target="_blank"></a>
+              </div>
+              <div class="meta-row">
+                <span class="meta-label">Tags:</span>
+                <div id="meta-tags-container" class="meta-tags-list"></div>
+              </div>
+              <div class="meta-row">
+                <span class="meta-label">Captured:</span>
+                <span id="meta-date" class="meta-date-text"></span>
+              </div>
+            </div>
+
+            <!-- Note / Bookmark Content -->
+            <div class="document-body">
+              <div id="note-reader-content" class="markdown-rendered">
+                <!-- Content inserted dynamically -->
+              </div>
+              <textarea id="note-editor-content" class="markdown-textarea hidden" spellcheck="false"></textarea>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. Interactive Graph View (Matching Image 2) -->
+      <section id="view-graph" class="view-panel">
+        <div class="graph-toolbar">
+          <div class="graph-title-indicator">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><circle cx="6" cy="18" r="3"/><line x1="8.5" y1="7.5" x2="16" y2="16"/></svg>
+            <span>Graph view</span>
+          </div>
+
+          <div class="graph-search-bar">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="text" id="graph-search-input" placeholder="Search nodes in graph..." autocomplete="off">
+          </div>
+
+          <div class="graph-controls-actions">
+            <button class="graph-ctrl-btn" id="btn-graph-zoom-in" title="Zoom In">+</button>
+            <button class="graph-ctrl-btn" id="btn-graph-zoom-out" title="Zoom Out">&minus;</button>
+            <button class="graph-ctrl-btn" id="btn-graph-reset" title="Reset View">Reset</button>
+            <button class="graph-ctrl-btn" id="btn-graph-settings" title="Filter & Forces">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="graph-canvas-container">
+          <canvas id="knowledge-graph-canvas"></canvas>
+
+          <!-- Graph Quick Info Tooltip / Card -->
+          <div id="graph-node-tooltip" class="graph-tooltip hidden">
+            <h4 id="tooltip-title">Node Title</h4>
+            <p id="tooltip-type">Type: web</p>
+            <p id="tooltip-summary">Summary text here...</p>
+            <div id="tooltip-tags" class="tooltip-tags-row"></div>
+            <div class="tooltip-hint">Click to open note</div>
+          </div>
+
+          <!-- Graph Settings Drawer -->
+          <div id="graph-settings-panel" class="graph-settings-drawer hidden">
+            <h3>Graph Settings</h3>
+            <div class="setting-row">
+              <label>Link Distance</label>
+              <input type="range" id="slider-link-dist" min="40" max="220" value="110">
+            </div>
+            <div class="setting-row">
+              <label>Repulsion Force</label>
+              <input type="range" id="slider-repulsion" min="300" max="2500" value="950">
+            </div>
+            <div class="setting-row">
+              <label>Node Size</label>
+              <input type="range" id="slider-node-size" min="3" max="12" value="6">
+            </div>
+            <div class="setting-row checkbox-row">
+              <label><input type="checkbox" id="chk-show-tags" checked> Show Node Labels</label>
+            </div>
+            <div class="graph-legend">
+              <span class="legend-item"><i class="dot dot-purple"></i> Notes / Links</span>
+              <span class="legend-item"><i class="dot dot-blue"></i> Semantic Similarity</span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Bottom Obsidian Status Bar -->
+  <footer class="obsidian-statusbar">
+    <div class="statusbar-left">
+      <span class="status-item"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg> Moneta Vault</span>
+      <span class="status-item status-offline-badge"><span class="green-indicator"></span> 100% Offline Local AI (No APIs)</span>
+    </div>
+    <div class="statusbar-right">
+      <span class="status-item" id="status-backlinks">0 backlinks</span>
+      <span class="status-item" id="status-word-count">64 words</span>
+      <span class="status-item" id="status-char-count">347 characters</span>
+    </div>
+  </footer>
+
+  <!-- Search Modal (Ctrl+Shift+F) -->
+  <div id="search-modal" class="modal-overlay hidden">
+    <div class="modal-window">
+      <div class="modal-header">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input type="text" id="modal-search-input" placeholder="Search bookmarks with natural language query..." autofocus>
+        <button class="modal-close-btn" id="btn-close-search-modal">&times;</button>
+      </div>
+      <div class="modal-results-list" id="modal-search-results">
+        <!-- Results rendered here -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings & Windows Context Menu Modal -->
+  <div id="settings-modal" class="modal-overlay hidden">
+    <div class="modal-window settings-window">
+      <div class="modal-header">
+        <h2>Moneta Vault Settings</h2>
+        <button class="modal-close-btn" id="btn-close-settings-modal">&times;</button>
+      </div>
+      <div class="settings-content">
+        <section class="settings-section">
+          <h3>Windows Context Menu Integration</h3>
+          <p class="section-desc">Add "Analyze Screen & Find Bookmarks (Ctrl+Shift+R)" and "Bookmark File" to the right-click menu whenever you right-click on your desktop, folders, or files in Windows.</p>
+          <button id="btn-register-context-menu" class="primary-btn">
+            Register Windows Explorer Context Menu
+          </button>
+          <div id="ctx-reg-status" class="status-message"></div>
+        </section>
+
+        <section class="settings-section">
+          <h3>Active Global Shortcuts</h3>
+          <table class="shortcuts-table">
+            <tr><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd></td><td>Bookmark file (Image, Document, PDF, EPUB)</td></tr>
+            <tr><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd></td><td>Take screenshot</td></tr>
+            <tr><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd></td><td>Bookmark selected text</td></tr>
+            <tr><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>F</kbd></td><td>Search bookmarks (semantic query)</td></tr>
+            <tr><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>R</kbd></td><td>Analyze screen text & find bookmarks</td></tr>
+            <tr><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>G</kbd></td><td>Open knowledge graph view</td></tr>
+          </table>
+        </section>
+
+        <section class="settings-section">
+          <h3>AI Engine Status</h3>
+          <div class="ai-status-card">
+            <span class="ai-mode-tag">100% Offline</span>
+            <p>Moneta uses Candle and local feature embeddings running strictly on your CPU/GPU. No data leaves your computer and no online AI APIs are ever used.</p>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast-popup hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
