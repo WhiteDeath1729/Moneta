@@ -17,9 +17,7 @@
       <div class="cosmic-title-wrap">
         <h1 class="cosmic-logo">MONETA</h1>
         <p class="cosmic-subtitle">Local Knowledge & Bookmark Vault</p>
-        <span class="cosmic-badge">100% Offline • No AI APIs</span>
       </div>
-      <button id="skip-intro-btn" class="skip-intro">Click to Enter Vault &rarr;</button>
     </div>
   </div>
 
@@ -36,24 +34,8 @@
 
     <!-- Obsidian Tabs Bar -->
     <div class="tabs-container" id="tabs-container">
-      <!-- Dynamic Tabs -->
-      <div class="tab-item" data-tab-id="orchard" title="Orchard">
-        <span class="tab-title">Orchard</span>
-        <span class="tab-close" data-close-id="orchard">&times;</span>
-      </div>
-      <div class="tab-item" data-tab-id="people" title="People">
-        <span class="tab-title">People</span>
-        <span class="tab-close" data-close-id="people">&times;</span>
-      </div>
-      <div class="tab-item active" data-tab-id="draft" title="draft">
-        <span class="tab-title">draft</span>
-        <span class="tab-close" data-close-id="draft">&times;</span>
-      </div>
-      <div class="tab-item" data-tab-id="keerthan-test-1" title="Keerthan test 1">
-        <span class="tab-title">Keerthan test 1</span>
-        <span class="tab-close" data-close-id="keerthan-test-1">&times;</span>
-      </div>
-      <div class="tab-item" data-tab-id="graph-view" title="Graph view">
+      <!-- Dynamic Tabs loaded by JS -->
+      <div class="tab-item active" data-tab-id="graph-view" title="Graph view">
         <span class="tab-icon">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><circle cx="6" cy="18" r="3"/><line x1="8.5" y1="7.5" x2="16" y2="16"/><line x1="6" y1="9" x2="6" y2="15"/></svg>
         </span>
@@ -94,21 +76,12 @@
         <button class="ribbon-btn" id="ribbon-bookmark-list-btn" title="Bookmarks List">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>
         </button>
-        <button class="ribbon-btn" id="ribbon-screenshot-btn" title="Take Screenshot (Ctrl+Shift+S)">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
-        </button>
-        <button class="ribbon-btn" id="ribbon-screen-search-btn" title="Analyze Screen Text & Bookmarks (Ctrl+Shift+R)">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8V4h4"/><path d="M20 8V4h-4"/><path d="M4 16v4h4"/><path d="M20 16v4h-4"/><circle cx="12" cy="12" r="3"/></svg>
-        </button>
 
         <div class="ribbon-divider"></div>
 
-        <!-- RAINBOW CHANGING BOOKMARK BUTTON (Matching Image 3) -->
-        <div class="rainbow-btn-wrapper" title="Bookmark File (Ctrl+Shift+O)">
-          <button id="rainbow-bookmark-btn" class="rainbow-glow-pill">
-            <span class="rainbow-btn-text">Bookmark file</span>
-          </button>
-        </div>
+        <button class="ribbon-btn" id="ribbon-bookmark-file-btn" title="Bookmark File (Ctrl+Shift+O)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+        </button>
       </div>
 
       <div class="ribbon-bottom">
@@ -138,6 +111,23 @@
         </div>
       </div>
 
+      <!-- PROMINENT HORIZONTAL RAINBOW CHANGING PILL BUTTON (Matching Image 3) -->
+      <div class="sidebar-rainbow-action">
+        <button id="rainbow-bookmark-btn" class="rainbow-pill-button" title="Bookmark File (Ctrl+Shift+O)">
+          <span class="rainbow-pill-border"></span>
+          <span class="rainbow-pill-inner">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+            <span class="rainbow-pill-text">Bookmark file</span>
+          </span>
+        </button>
+      </div>
+      <div class="sidebar-chrome-sync">
+        <button id="btn-sync-chrome-bookmarks" class="chrome-sync-button" type="button" title="Sync bookmarks from a Chrome profile">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7v5h-5"/><path d="M4 17v-5h5"/><path d="M5.6 9A7 7 0 0 1 18 6l2 6M4 12l2 6a7 7 0 0 0 12.4-3"/></svg>
+          <span>Sync Chrome bookmarks</span>
+        </button>
+      </div>
+
       <div class="sidebar-search-box">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
         <input type="text" id="sidebar-filter-input" placeholder="Filter vault files..." autocomplete="off">
@@ -155,9 +145,9 @@
       <section id="view-editor" class="view-panel active">
         <div class="editor-header-bar">
           <div class="doc-breadcrumbs">
-            <span id="doc-breadcrumb-folder">Writing</span>
+            <span id="doc-breadcrumb-folder">Bookmarks</span>
             <span class="separator">/</span>
-            <span id="doc-breadcrumb-title">draft</span>
+            <span id="doc-breadcrumb-title">Select a bookmark</span>
           </div>
           <div class="doc-actions">
             <button class="doc-action-btn" id="btn-toggle-preview" title="Reading View / Edit">
@@ -166,12 +156,15 @@
             <button class="doc-action-btn" id="btn-open-graph-for-note" title="Open in Graph View">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><circle cx="6" cy="18" r="3"/><line x1="8.5" y1="7.5" x2="16" y2="16"/></svg>
             </button>
+            <button class="doc-action-btn doc-action-btn-danger" id="btn-delete-current-note" title="Delete Bookmark">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+            </button>
           </div>
         </div>
 
         <div class="document-scroll-container">
           <div class="obsidian-document">
-            <h1 class="document-title" id="document-title" contenteditable="true" spellcheck="false">draft</h1>
+            <h1 class="document-title" id="document-title" contenteditable="true" spellcheck="false"></h1>
 
             <!-- Bookmark Metadata Chip Bar (if bookmark) -->
             <div id="document-meta-card" class="doc-meta-card hidden">
@@ -232,23 +225,35 @@
             <p id="tooltip-type">Type: web</p>
             <p id="tooltip-summary">Summary text here...</p>
             <div id="tooltip-tags" class="tooltip-tags-row"></div>
-            <div class="tooltip-hint">Click to open note</div>
+            <div class="tooltip-hint">Click for connections · Click again to open</div>
           </div>
+
+          <aside id="graph-mini-panel" class="graph-mini-panel hidden" aria-live="polite">
+            <div class="graph-mini-header">
+              <div>
+                <strong id="graph-mini-title">Connections</strong>
+                <span id="graph-mini-count"></span>
+              </div>
+              <button id="btn-graph-mini-close" class="graph-ctrl-btn" type="button" title="Close connections graph" aria-label="Close connections graph">&times;</button>
+            </div>
+            <canvas id="graph-mini-canvas" aria-label="Selected bookmark and its connected bookmarks"></canvas>
+            <p class="graph-mini-hint">Click a node for its connections · Click again to open</p>
+          </aside>
 
           <!-- Graph Settings Drawer -->
           <div id="graph-settings-panel" class="graph-settings-drawer hidden">
             <h3>Graph Settings</h3>
             <div class="setting-row">
               <label>Link Distance</label>
-              <input type="range" id="slider-link-dist" min="40" max="220" value="110">
+              <input type="range" id="slider-link-dist" min="80" max="360" value="190">
             </div>
             <div class="setting-row">
               <label>Repulsion Force</label>
-              <input type="range" id="slider-repulsion" min="300" max="2500" value="950">
+              <input type="range" id="slider-repulsion" min="800" max="6000" value="3200">
             </div>
             <div class="setting-row">
               <label>Node Size</label>
-              <input type="range" id="slider-node-size" min="3" max="12" value="6">
+              <input type="range" id="slider-node-size" min="2" max="8" value="3.5">
             </div>
             <div class="setting-row checkbox-row">
               <label><input type="checkbox" id="chk-show-tags" checked> Show Node Labels</label>
@@ -267,7 +272,7 @@
   <footer class="obsidian-statusbar">
     <div class="statusbar-left">
       <span class="status-item"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg> Moneta Vault</span>
-      <span class="status-item status-offline-badge"><span class="green-indicator"></span> 100% Offline Local AI (No APIs)</span>
+      <span class="status-item"><span class="green-indicator"></span> Ready</span>
     </div>
     <div class="statusbar-right">
       <span class="status-item" id="status-backlinks">0 backlinks</span>
@@ -320,12 +325,33 @@
         </section>
 
         <section class="settings-section">
-          <h3>AI Engine Status</h3>
+          <h3>Local Engine</h3>
           <div class="ai-status-card">
-            <span class="ai-mode-tag">100% Offline</span>
-            <p>Moneta uses Candle and local feature embeddings running strictly on your CPU/GPU. No data leaves your computer and no online AI APIs are ever used.</p>
+            <span class="ai-mode-tag">Local Vault</span>
+            <p>Moneta processes and indexes your bookmarks, embeddings, and OCR text directly on your device.</p>
           </div>
         </section>
+      </div>
+    </div>
+  </div>
+
+  <div id="chrome-sync-modal" class="modal-overlay hidden">
+    <div class="modal-window chrome-sync-window">
+      <div class="modal-header">
+        <div>
+          <h2>Sync Chrome bookmarks</h2>
+          <p class="section-desc">Choose a local Chrome profile. Moneta reads its bookmarks file; no extension is needed.</p>
+        </div>
+        <button class="modal-close-btn" id="btn-close-chrome-sync-modal" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="chrome-sync-content">
+        <label for="chrome-profile-select">Chrome profile</label>
+        <select id="chrome-profile-select"></select>
+        <p id="chrome-sync-status" class="status-message" aria-live="polite"></p>
+        <div class="chrome-sync-actions">
+          <button id="btn-cancel-chrome-sync" class="secondary-btn" type="button">Cancel</button>
+          <button id="btn-confirm-chrome-sync" class="primary-btn" type="button">Sync profile</button>
+        </div>
       </div>
     </div>
   </div>

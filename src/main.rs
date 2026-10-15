@@ -43,6 +43,18 @@ fn main() {
         return;
     }
 
+    let _instance_guard = match moneta::instance::acquire() {
+        Ok(Some(guard)) => guard,
+        Ok(None) => {
+            println!("Moneta is already running; this instance will exit.");
+            return;
+        }
+        Err(error) => {
+            eprintln!("{error}");
+            return;
+        }
+    };
+
     println!("Initializing Moneta Local AI Engine...");
     let ai_engine = Arc::new(LocalAIEngine::default());
     if let Err(error) = ai_engine.init() {

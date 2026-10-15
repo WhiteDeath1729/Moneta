@@ -1,14 +1,14 @@
 use axum::{
+    Json, Router,
     body::Bytes,
     extract::{DefaultBodyLimit, State},
     http::StatusCode,
     routing::{get, post},
-    Json, Router,
 };
 use scraper::{ElementRef, Html, Selector, node::Node};
 use serde::{Deserialize, Serialize};
-use std::{net::SocketAddr, sync::Arc, time::Duration};
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use crate::ai::LocalAIEngine;
 use crate::capture::orchestrator::CaptureService;
@@ -57,6 +57,49 @@ struct BookmarkSyncResponse {
     status: String,
     synced: usize,
     page_content_failures: Vec<String>,
+}
+
+pub async fn sync_chrome_bookmarks_to_local(
+    bookmarks: &[ChromeBookmark],
+) -> Result<(usize, usize), String> {
+    let client = reqwest::Client::new();
+    let mut synced = 0;
+    let mut page_content_failures = 0;
+
+    for bookmark_batch in bookmarks.chunks(100) {
+        for bookmark in bookmark_batch {
+            bookmark.validate().map_err(|error| {
+                format!("Invalid Chrome bookmark '{}': {error}", bookmark.title)
+            })?;
+        }
+        let response = client
+            .post("http://127.0.0.1:8765/bookmarks")
+            .json(bookmark_batch)
+            .send()
+            .await
+            .map_err(|error| {
+                format!("Could not connect to Moneta after syncing {synced} bookmarks: {error}")
+            })?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let message = response
+                .text()
+                .await
+                .unwrap_or_else(|error| format!("Could not read server response: {error}"));
+            return Err(format!(
+                "Chrome bookmark sync failed after {synced} bookmarks (HTTP {status}): {message}"
+            ));
+        }
+
+        let result: BookmarkSyncResponse = response
+            .json()
+            .await
+            .map_err(|error| format!("Moneta returned an invalid sync response: {error}"))?;
+        synced += result.synced;
+        page_content_failures += result.page_content_failures.len();
+    }
+
+    Ok((synced, page_content_failures))
 }
 
 async fn health_check() -> &'static str {
@@ -128,7 +171,10 @@ async fn receive_selection(
     let (page_text, page_content_error) = match fetch_webpage_text(&client, &selection.url).await {
         Ok(text) => (text, None),
         Err(error) => {
-            eprintln!("Could not fetch selected webpage {}: {error}", selection.url);
+            eprintln!(
+                "Could not fetch selected webpage {}: {error}",
+                selection.url
+            );
             (String::new(), Some(error))
         }
     };
@@ -137,10 +183,7 @@ async fn receive_selection(
         selection.selected_text, page_text
     ));
 
-    let capture_service = match CaptureService::new_with_ai(
-        "moneta-vault/bookmarks",
-        engine,
-    ) {
+    let capture_service = match CaptureService::new_with_ai("moneta-vault/bookmarks", engine) {
         Ok(service) => service,
         Err(error) => {
             return Err(internal_error(error));
@@ -230,8 +273,9 @@ async fn receive_bookmarks(
         });
     }
 
-    let mut page_texts: Vec<Option<Result<String, String>>> =
-        std::iter::repeat_with(|| None).take(bookmarks_list.len()).collect();
+    let mut page_texts: Vec<Option<Result<String, String>>> = std::iter::repeat_with(|| None)
+        .take(bookmarks_list.len())
+        .collect();
     while let Some(task_result) = fetch_tasks.join_next().await {
         let (index, page_text) = task_result
             .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
@@ -258,7 +302,10 @@ async fn receive_bookmarks(
         match page_text.expect("each bookmark webpage fetch task must complete") {
             Ok(text) => bookmark.captured_text = Some(text),
             Err(error) => {
-                let failure = format!("{} ({}): {error}", chrome_bookmark.title, chrome_bookmark.url);
+                let failure = format!(
+                    "{} ({}): {error}",
+                    chrome_bookmark.title, chrome_bookmark.url
+                );
                 eprintln!("Webpage text unavailable for bookmark: {failure}");
                 page_content_failures.push(failure);
             }
@@ -460,7 +507,9 @@ pub async fn start_server(engine: Arc<LocalAIEngine>) {
     let listener = match tokio::net::TcpListener::bind(addr).await {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("Warning: Could not bind Moneta bookmark API on {addr}: {e}. Continuing without local bookmark server.");
+            eprintln!(
+                "Warning: Could not bind Moneta bookmark API on {addr}: {e}. Continuing without local bookmark server."
+            );
             return;
         }
     };

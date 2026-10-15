@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const SIMILARITY_EDGE_THRESHOLD: f32 = 0.3;
+const CROWDED_NODE_CONNECTION_TRIGGER: usize = 25;
+const CROWDED_NODE_CONNECTION_TARGET: usize = 20;
 const CHROME_EPOCH_OFFSET_SECONDS: i64 = 11_644_473_600;
 const SEARCH_HISTORY_LOOKBACK_SECONDS: i64 = 30 * 24 * 60 * 60;
 const BOOKMARK_SEARCH_CONTEXT_SECONDS: i64 = 24 * 60 * 60;
@@ -194,7 +196,18 @@ impl KnowledgeGraph {
             .iter()
             .map(|edge| ordered_pair(&edge.source, &edge.target))
             .collect();
+        let mut fixed_connection_counts: HashMap<String, usize> = HashMap::new();
+        for edge in &graph.edges {
+            *fixed_connection_counts
+                .entry(edge.source.clone())
+                .or_default() += 1;
+            *fixed_connection_counts
+                .entry(edge.target.clone())
+                .or_default() += 1;
+        }
 
+        let mut candidates = Vec::new();
+        let mut candidate_connection_counts = fixed_connection_counts.clone();
         for left_index in 0..node_ids.len() {
             let left_id = &node_ids[left_index];
             let Some(left_embedding) = embeddings.get(left_id) else {
@@ -207,14 +220,72 @@ impl KnowledgeGraph {
                 };
 
                 let similarity = cosine_similarity(left_embedding, right_embedding);
-                if similarity < threshold || !existing_edges.insert(ordered_pair(left_id, right_id))
-                {
+                let pair = ordered_pair(left_id, right_id);
+                if similarity < threshold || existing_edges.contains(&pair) {
                     continue;
                 }
 
+                *candidate_connection_counts
+                    .entry(left_id.clone())
+                    .or_default() += 1;
+                *candidate_connection_counts
+                    .entry(right_id.clone())
+                    .or_default() += 1;
+                candidates.push((left_id.clone(), right_id.clone(), pair, similarity));
+            }
+        }
+
+        let crowded_nodes: HashSet<String> = candidate_connection_counts
+            .iter()
+            .filter(|(_, count)| **count > CROWDED_NODE_CONNECTION_TRIGGER)
+            .map(|(id, _)| id.clone())
+            .collect();
+        let mut candidate_edges_by_node: HashMap<String, Vec<(String, (String, String), f32)>> =
+            HashMap::new();
+        for (left_id, right_id, pair, similarity) in &candidates {
+            candidate_edges_by_node
+                .entry(left_id.clone())
+                .or_default()
+                .push((right_id.clone(), pair.clone(), *similarity));
+            candidate_edges_by_node
+                .entry(right_id.clone())
+                .or_default()
+                .push((left_id.clone(), pair.clone(), *similarity));
+        }
+
+        let mut selected_edges_by_crowded_node: HashMap<String, HashSet<(String, String)>> =
+            HashMap::new();
+        for node_id in crowded_nodes {
+            let fixed_connections = fixed_connection_counts.get(&node_id).copied().unwrap_or(0);
+            let available_connections =
+                CROWDED_NODE_CONNECTION_TARGET.saturating_sub(fixed_connections);
+            let mut node_candidates = candidate_edges_by_node.remove(&node_id).unwrap_or_default();
+            node_candidates.sort_by(|left, right| {
+                right
+                    .2
+                    .partial_cmp(&left.2)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| left.0.cmp(&right.0))
+            });
+            let selected = node_candidates
+                .into_iter()
+                .take(available_connections)
+                .map(|(_, pair, _)| pair)
+                .collect();
+            selected_edges_by_crowded_node.insert(node_id, selected);
+        }
+
+        for (left_id, right_id, pair, similarity) in candidates {
+            let left_selected = selected_edges_by_crowded_node
+                .get(&left_id)
+                .is_none_or(|selected| selected.contains(&pair));
+            let right_selected = selected_edges_by_crowded_node
+                .get(&right_id)
+                .is_none_or(|selected| selected.contains(&pair));
+            if left_selected && right_selected && existing_edges.insert(pair) {
                 graph.edges.push(GraphEdge {
-                    source: left_id.clone(),
-                    target: right_id.clone(),
+                    source: left_id,
+                    target: right_id,
                     similarity: Some(similarity),
                 });
             }
@@ -776,6 +847,38 @@ mod tests {
     }
 
     #[test]
+    fn nodes_over_25_connections_keep_only_the_20_strongest_similarity_edges() {
+        let mut graph = KnowledgeGraph::new();
+        let mut embeddings = HashMap::new();
+        let mut hub_embedding = vec![0.0; 31];
+        hub_embedding[0] = 1.0;
+        graph.add_bookmark(&bookmark("hub", "00 Hub", ""));
+        embeddings.insert("hub".to_string(), hub_embedding);
+
+        for index in 0..30 {
+            let similarity = 0.31 + index as f32 * 0.01;
+            let mut embedding = vec![0.0; 31];
+            embedding[0] = similarity;
+            embedding[index + 1] = (1.0 - similarity * similarity).sqrt();
+            let id = format!("leaf-{index:02}");
+            graph.add_bookmark(&bookmark(&id, &format!("{:02} Leaf", index + 1), ""));
+            embeddings.insert(id, embedding);
+        }
+
+        let data = graph.build_graph_with_similarities(&embeddings, SIMILARITY_EDGE_THRESHOLD);
+        let hub_edges: Vec<_> = data
+            .edges
+            .iter()
+            .filter(|edge| edge.source == "hub" || edge.target == "hub")
+            .collect();
+
+        assert_eq!(hub_edges.len(), CROWDED_NODE_CONNECTION_TARGET);
+        assert!(hub_edges.iter().all(|edge| {
+            edge.similarity.is_some_and(|score| score >= 0.41)
+        }));
+    }
+
+    #[test]
     fn graph_nodes_include_bookmark_timestamps_and_text_previews() {
         let mut bookmark = bookmark("1", "Research note", "A   compact\ntext preview.");
         bookmark.created_at = 1_700_000_000;
@@ -793,6 +896,37 @@ mod tests {
             Some("A compact text preview.")
         );
         assert_eq!(node.summary.as_deref(), Some("A summary"));
+    }
+
+    #[test]
+    fn graph_includes_captured_content_types_without_embeddings() {
+        let captures = [
+            bookmark("web-selection", "Web selection", "selected page content"),
+            bookmark("text-selection", "Text selection", "selected text"),
+            Bookmark::new(
+                "screenshot".into(),
+                "images/screenshot.png".into(),
+                "Screenshot OCR".into(),
+                "screenshot".into(),
+            ),
+            Bookmark::new(
+                "image-ocr".into(),
+                "images/scan.png".into(),
+                "Scanned image".into(),
+                "image".into(),
+            ),
+        ];
+        let mut graph = KnowledgeGraph::new();
+        for capture in &captures {
+            graph.add_bookmark(capture);
+        }
+
+        let data = graph.build_graph_with_similarities(&HashMap::new(), SIMILARITY_EDGE_THRESHOLD);
+        let node_ids: HashSet<&str> = data.nodes.iter().map(|node| node.id.as_str()).collect();
+        assert_eq!(data.nodes.len(), captures.len());
+        for capture in &captures {
+            assert!(node_ids.contains(capture.id.as_str()), "missing {}", capture.id);
+        }
     }
 
     #[test]

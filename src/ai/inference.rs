@@ -184,11 +184,12 @@ impl LocalLlmInference {
 Analyze the user's bookmarked selection within its source context.
 Do NOT output generic tags like "text", "document", "file", "content", "information", "notes".
 Infer semantic tags representing concepts, subjects, technologies, people, topics, and domains found in the source.
+Return 4 to 8 specific tags. Include at least one tag derived from the file or bookmark title and, when identifiable, a tag for the content type (such as book, webpage, image, or document).
 Return ONLY valid JSON matching this schema:
 {
   "title": "descriptive title of what the bookmark is actually about",
   "summary": "concise contextual summary of the bookmarked material",
-  "tags": ["tag1", "tag2", "tag3"]
+  "tags": ["tag1", "tag2", "tag3", "tag4"]
 }"#;
 
         let context_prompt = context.build_prompt_context(3500);

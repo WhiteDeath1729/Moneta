@@ -7,6 +7,7 @@
     "frontendDist": "../ui"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "label": "main",
@@ -15,6 +16,7 @@
         "height": 880,
         "minWidth": 960,
         "minHeight": 640,
+        "visible": false,
         "resizable": true,
         "fullscreen": false,
         "decorations": false,
@@ -22,18 +24,38 @@
       }
     ],
     "security": {
+      "assetProtocol": {
+        "enable": true,
+        "scope": []
+      },
       "csp": null
     }
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
+    "resources": {
+      "../models/llm/qwen2.5-0.5b-instruct-q4_k_m.gguf": "models/llm/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+      "../models/llm/tokenizer.json": "models/llm/tokenizer.json",
+      "../models/llm/LICENSE-Qwen.txt": "models/llm/LICENSE-Qwen.txt",
+      "../models/embeddings/bge-small-en-v1.5-q4_k_m.gguf": "models/embeddings/bge-small-en-v1.5-q4_k_m.gguf",
+      "../models/embeddings/LICENSE-BGE.txt": "models/embeddings/LICENSE-BGE.txt"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "offlineInstaller"
+      },
+      "nsis": {
+        "startMenuFolder": "Moneta",
+        "installerHooks": "windows/installer-hooks.nsh"
+      }
+    }
   }
 }

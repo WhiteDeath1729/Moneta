@@ -46,24 +46,116 @@ impl TaggingProvider for LocalAiTaggingProvider {
         ctx.source_path = Some(bookmark.path.clone());
         ctx.window_title = Some(bookmark.title.clone());
 
-        match self.engine.analyze_context(&ctx, &bookmark.title) {
-            Ok(analysis) => {
-                if !analysis.tags.is_empty() {
-                    return analysis
-                        .tags
+        let (generated_tags, source, confidence) =
+            match self.engine.analyze_context(&ctx, &bookmark.title) {
+                Ok(analysis) => (analysis.tags, TagSource::Ai, Some(0.95)),
+                Err(_) => (
+                    self.fallback
+                        .suggest_tags(bookmark)
                         .into_iter()
-                        .map(|name| TagInfo {
-                            name,
-                            source: TagSource::Ai,
-                            confidence: Some(0.95),
-                        })
-                        .collect();
-                }
-                self.fallback.suggest_tags(bookmark)
+                        .map(|tag| tag.name)
+                        .collect(),
+                    TagSource::Ai,
+                    Some(0.75),
+                ),
+            };
+        ensure_contextual_tags(
+            bookmark,
+            generated_tags,
+            source,
+            confidence,
+            &self.fallback,
+        )
+    }
+}
+
+fn ensure_contextual_tags(
+    bookmark: &Bookmark,
+    generated_tags: Vec<String>,
+    source: TagSource,
+    confidence: Option<f64>,
+    fallback: &RuleBasedTaggingProvider,
+) -> Vec<TagInfo> {
+    let mut names = Vec::new();
+    let title_tags = crate::ai::analysis::sanitize_tags(&[bookmark.title.clone()]);
+    if let Some(title_tag) = title_tags.first() {
+        push_contextual_tag(&mut names, title_tag);
+    }
+    for title_word in bookmark.title.split(|ch: char| !ch.is_alphanumeric()) {
+        if title_word.chars().count() >= 3 {
+            push_contextual_tag(&mut names, title_word);
+            if names.len() >= 2 {
+                break;
             }
-            Err(_) => self.fallback.suggest_tags(bookmark),
         }
     }
+
+    let normalized_source_type = bookmark.source_type.to_lowercase();
+    let content_types: &[&str] = match normalized_source_type.as_str() {
+        "epub" | "book" => &["book", "ebook"],
+        "web" | "webpage" => &["webpage", "web-reference"],
+        "image" | "screenshot" => &["image", "screen-capture"],
+        "pdf" => &["pdf", "reference-document"],
+        "word" | "doc" | "docx" | "file" => &["document", "reference-document"],
+        "note" | "text" | "clipboard" => &["note", "quick-note"],
+        "audio" => &["audio", "recording"],
+        "record" | "recording" => &["record", "audio"],
+        "video" => &["video", "video-reference"],
+        other => &[other],
+    };
+    for content_type in content_types {
+        push_contextual_tag(&mut names, content_type);
+    }
+
+    if names.len() < 8 {
+        let title_type_tag = format!(
+            "{}-{}",
+            MetadataService::normalize_tag(&bookmark.title),
+            content_types[0]
+        );
+        push_contextual_tag(&mut names, &title_type_tag);
+    }
+
+    for tag in &generated_tags {
+        for sanitized in crate::ai::analysis::sanitize_tags(&[tag.clone()]) {
+            push_contextual_tag(&mut names, &sanitized);
+        }
+    }
+
+    if names.len() < 4 {
+        for tag in fallback.suggest_tags(bookmark) {
+            push_contextual_tag(&mut names, &tag.name);
+        }
+    }
+    for tag in ["knowledge-capture", "personal-reference", "topic-index"] {
+        if names.len() >= 4 {
+            break;
+        }
+        push_contextual_tag(&mut names, tag);
+    }
+
+    names
+        .into_iter()
+        .map(|name| TagInfo {
+            name,
+            source: source.clone(),
+            confidence,
+        })
+        .collect()
+}
+
+fn push_contextual_tag(names: &mut Vec<String>, value: &str) {
+    if names.len() >= 8 {
+        return;
+    }
+    let normalized = MetadataService::normalize_tag(value);
+    if !(2..=40).contains(&normalized.len()) || names.contains(&normalized) {
+        return;
+    }
+    if crate::ai::analysis::sanitize_tags(&[normalized.clone()]).is_empty() {
+        return;
+    }
+    names.push(normalized);
 }
 
 #[derive(Clone)]
@@ -173,5 +265,47 @@ mod tests {
         assert!(!tags.is_empty());
         let names: Vec<String> = tags.into_iter().map(|t| t.name).collect();
         assert!(names.contains(&"rust".to_string()) || names.contains(&"concurrency".to_string()));
+    }
+
+    #[test]
+    fn contextual_tags_include_title_and_content_type_and_stay_within_range() {
+        let provider = RuleBasedTaggingProvider::new();
+        let mut bookmark = Bookmark::new(
+            "id".into(),
+            "path".into(),
+            "Rust Concurrency".into(),
+            "epub".into(),
+        );
+        bookmark.captured_text =
+            Some("Threads mutexes channels ownership and safe parallel execution".into());
+
+        let tags = ensure_contextual_tags(
+            &bookmark,
+            vec!["parallel-programming".into()],
+            TagSource::Ai,
+            Some(0.95),
+            &provider,
+        );
+        let names: Vec<_> = tags.iter().map(|tag| tag.name.as_str()).collect();
+
+        assert!((4..=8).contains(&tags.len()));
+        assert!(names.contains(&"rust-concurrency"));
+        assert!(names.contains(&"book"));
+    }
+
+    #[test]
+    fn sparse_bookmarks_still_receive_four_tags() {
+        let provider = RuleBasedTaggingProvider::new();
+        let bookmark = Bookmark::new("id".into(), "path".into(), "AI".into(), "".into());
+        let tags = ensure_contextual_tags(
+            &bookmark,
+            Vec::new(),
+            TagSource::Ai,
+            Some(0.75),
+            &provider,
+        );
+
+        assert_eq!(tags.len(), 4);
+        assert!(tags.iter().any(|tag| tag.name == "ai"));
     }
 }

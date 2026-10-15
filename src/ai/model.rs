@@ -15,16 +15,18 @@ impl Default for ModelConfig {
             .or_else(|_| std::env::var("MONETA_LLM_PATH"))
             .map(PathBuf::from)
             .unwrap_or_else(|_| {
-                find_gguf_in_dir(Path::new("models/llm"))
-                    .unwrap_or_else(|| PathBuf::from("models/llm/qwen2.5-0.5b-instruct-q4_k_m.gguf"))
+                find_bundled_gguf("models/llm").unwrap_or_else(|| {
+                    bundled_path("models/llm/qwen2.5-0.5b-instruct-q4_k_m.gguf")
+                })
             });
 
         let embedding_path = std::env::var("MONETA_EMBEDDING_MODEL")
             .or_else(|_| std::env::var("MONETA_EMBEDDING_PATH"))
             .map(PathBuf::from)
             .unwrap_or_else(|_| {
-                find_gguf_in_dir(Path::new("models/embeddings"))
-                    .unwrap_or_else(|| PathBuf::from("models/embeddings/bge-small-en-v1.5-q4_k_m.gguf"))
+                find_bundled_gguf("models/embeddings").unwrap_or_else(|| {
+                    bundled_path("models/embeddings/bge-small-en-v1.5-q4_k_m.gguf")
+                })
             });
 
         Self {
@@ -77,6 +79,27 @@ impl ModelConfig {
     pub fn is_embedding_available(&self) -> bool {
         self.embedding_path.exists() && self.embedding_path.is_file()
     }
+}
+
+fn find_bundled_gguf(relative_dir: &str) -> Option<PathBuf> {
+    find_gguf_in_dir(Path::new(relative_dir)).or_else(|| {
+        let executable_dir = std::env::current_exe().ok()?;
+        let models_dir = executable_dir.parent()?.join(relative_dir);
+        find_gguf_in_dir(&models_dir)
+    })
+}
+
+fn bundled_path(relative_path: &str) -> PathBuf {
+    let path = PathBuf::from(relative_path);
+    if path.exists() {
+        return path;
+    }
+
+    std::env::current_exe()
+        .ok()
+        .and_then(|executable| executable.parent().map(|dir| dir.join(&path)))
+        .filter(|path| path.exists())
+        .unwrap_or(path)
 }
 
 /// Discovers the first `.gguf` file inside a directory.

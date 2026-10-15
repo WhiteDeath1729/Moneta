@@ -17,3 +17,10 @@ Place your offline GGUF models in these directories:
 Moneta will automatically detect any `.gguf` file placed in these folders, or you can configure exact paths via environment variables or settings:
 - `MONETA_LLM_MODEL`: Path to LLM `.gguf` file
 - `MONETA_EMBEDDING_MODEL`: Path to embedding `.gguf` file
+
+The Windows release setup includes the Qwen2.5-0.5B-Instruct Q4_K_M model,
+its tokenizer, and the BGE-small-en-v1.5 Q4_K_M embedding model. Build
+`dist\Moneta-Setup.exe` with `.\build.ps1`; the script downloads the pinned
+public model files when needed and verifies their checksums before packaging.
+The resulting installer includes the offline WebView2 runtime and is roughly
+650 MB. Model licenses and source details are included next to their files.

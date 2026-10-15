@@ -3,9 +3,6 @@
  * 100% Offline • No AI APIs Used
  */
 
-// Helper to check if Tauri API is present
-const hasTauri = typeof window.__TAURI__ !== 'undefined' || typeof window.__TAURI_INTERNALS__ !== 'undefined';
-
 async function tauriInvoke(cmd, args = {}) {
   if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke) {
     return window.__TAURI__.core.invoke(cmd, args);
@@ -18,53 +15,15 @@ async function tauriInvoke(cmd, args = {}) {
 }
 
 // -------------------------------------------------------------
-// SEED DATA (For standalone / initial rendering matching user pics)
+// APP STATE (Connected to real local vault bookmarks)
 // -------------------------------------------------------------
-const INITIAL_WRITING_NOTES = [
-  { id: 'writing-acceptance', title: 'Acceptance', folder: 'Writing', content: 'On acceptance and letting go of unnecessary expectations.\n\nAcceptance is not resignation; it is meeting reality on its own terms.' },
-  { id: 'writing-courage', title: 'Courage', folder: 'Writing', content: 'Courage is resistance to fear, mastery of fear, not absence of fear.' },
-  { id: 'writing-false-sheriffs', title: 'False Sheriffs', folder: 'Writing', content: 'False authorities and self-appointed gatekeepers.\n\nObserving how power structures manifest in small community dynamics.' },
-  { id: 'writing-hate', title: 'Hate', folder: 'Writing', content: 'Reflections on hate and constructive emotional redirection.' },
-  { id: 'writing-jealousy', title: 'Jealousy', folder: 'Writing', content: 'The roots of envy and focusing on intrinsic fulfillment.' },
-  { id: 'writing-leisure', title: 'Leisure', folder: 'Writing', content: 'Leisure as the basis of culture and deep thought.' },
-  { id: 'writing-pain', title: 'Pain', folder: 'Writing', content: 'Physical pain versus existential discomfort. Patterns of resilience.' },
-  { id: 'writing-patience', title: 'Patience, Irritation and Love', folder: 'Writing', content: 'Patience is the calm acceptance that things happen in a different order than the one you have in mind.' },
-  { id: 'writing-strength', title: 'Strength and cowardice', folder: 'Writing', content: 'Strength in restraint; the subtle boundaries between bravery and recklessness.' },
-  { id: 'writing-uncertainty', title: 'Uncertainty and fragility', folder: 'Writing', content: 'Embracing antifragility in high-variance environments.' }
-];
-
-const INITIAL_QUICK_NOTES = [
-  { id: 'note-2026-10-13', title: '2026-10-13', folder: 'Quick Notes', content: '# 2026-10-13\n\nDaily log. Reviewing Moneta architecture and Obsidian UI design.' },
-  { id: 'note-college', title: 'College', folder: 'Quick Notes', content: 'Semester project outlines and study schedules.' },
-  {
-    id: 'note-draft',
-    title: 'draft',
-    folder: 'Writing',
-    content: 'Hmm, there are all sorts of arranged marriages ofc. I mean, the landscape has evolved a lot these days though.\n\nPeople have this concept of dating to marry, where people basically court each other for 6 months plus and then marry. Some rural places, it still is phone calls and pictures and 1 meeting with the families so there is that too.\n\nThe '
-  },
-  { id: 'note-git', title: 'GIT', folder: 'Quick Notes', content: 'Git workflows, rebase conventions, and submodules guide.' },
-  { id: 'note-ideas', title: 'Ideas', folder: 'Quick Notes', content: 'Product concepts for local-first knowledge management.' },
-  { id: 'note-keerthan-test-1', title: 'Keerthan test 1', folder: 'Quick Notes', content: '# Keerthan test 1\n\nConnected to [[Chapter 1]]. Testing bidirectional references and knowledge graph visualization.' },
-  { id: 'note-chapter-1', title: 'Chapter 1', folder: 'Quick Notes', content: '# Chapter 1\n\nDirect link to [[Keerthan test 1]]. Exploring network node gravity and semantic clustering.' },
-  { id: 'note-mac-address', title: 'Mac Address', folder: 'Quick Notes', content: 'Hardware address notes and network protocol definitions.' },
-  { id: 'note-msme', title: 'MSME Idea Hackathon', folder: 'Quick Notes', content: 'Notes and pitches for the MSME Hackathon submission.' },
-  { id: 'note-orchard', title: 'Orchard', folder: 'Quick Notes', content: 'Orchard concept notes and system architecture.' },
-  { id: 'note-people', title: 'People', folder: 'Quick Notes', content: 'Directory of collaborators and contacts.' },
-  { id: 'note-untitled-canvas', title: 'Untitled', badge: 'CANVAS', folder: 'Quick Notes', content: 'Canvas layout and visual node mapping.' },
-  { id: 'note-untitled', title: 'Untitled', folder: 'Quick Notes', content: 'Quick scratchpad note.' }
-];
-
-// App State
 let state = {
-  currentTabId: 'draft',
+  currentTabId: 'graph-view',
   openTabs: [
-    { id: 'orchard', title: 'Orchard' },
-    { id: 'people', title: 'People' },
-    { id: 'draft', title: 'draft' },
-    { id: 'keerthan-test-1', title: 'Keerthan test 1' },
     { id: 'graph-view', title: 'Graph view', isGraph: true }
   ],
   vaultItems: [],
+  folders: ['Web Bookmarks', 'Images & OCR', 'Documents', 'Quick Notes'],
   notesById: new Map(),
   graphData: null,
   isEditMode: false
@@ -76,7 +35,6 @@ let state = {
 function initUniverseAnimation() {
   const canvas = document.getElementById('universe-canvas');
   const loader = document.getElementById('universe-loading-screen');
-  const skipBtn = document.getElementById('skip-intro-btn');
   if (!canvas || !loader) return;
 
   const ctx = canvas.getContext('2d');
@@ -113,12 +71,7 @@ function initUniverseAnimation() {
     }, 850);
   }
 
-  skipBtn.addEventListener('click', endAnimation);
-  loader.addEventListener('click', (e) => {
-    if (e.target !== skipBtn) endAnimation();
-  });
-
-  // Automatically fade out after 2.4 seconds
+  // The intro always plays fully and then exits automatically.
   setTimeout(endAnimation, 2400);
 
   function render(now) {
@@ -167,6 +120,9 @@ function initUniverseAnimation() {
 // 2. MOCK BACKEND (Fallback for browser preview / testing)
 // -------------------------------------------------------------
 function mockBackend(cmd, args) {
+  if (cmd === 'take_pending_shortcut_actions') {
+    return [];
+  }
   if (cmd === 'get_vault_structure') {
     const bms = [];
     return {
@@ -175,26 +131,7 @@ function mockBackend(cmd, args) {
     };
   }
   if (cmd === 'get_graph_data') {
-    const nodes = [
-      { id: 'draft', title: 'draft', source_type: 'note', tags: ['writing'], summary: 'Arranged marriages essay draft' },
-      { id: 'keerthan-test-1', title: 'Keerthan test 1', source_type: 'note', tags: ['test'], summary: 'Test note with chapter reference' },
-      { id: 'chapter-1', title: 'Chapter 1', source_type: 'note', tags: ['book'], summary: 'First chapter connected to Keerthan' },
-      { id: 'orchard', title: 'Orchard', source_type: 'note', tags: ['project'], summary: 'Knowledge orchard notes' },
-      { id: 'people', title: 'People', source_type: 'note', tags: ['contacts'], summary: 'Directory of people' },
-      { id: 'msme', title: 'MSME Idea Hackathon', source_type: 'note', tags: ['hackathon'], summary: 'Idea pitch document' },
-      { id: 'git', title: 'GIT', source_type: 'note', tags: ['dev'], summary: 'Git commands reference' },
-      { id: 'mac-address', title: 'Mac Address', source_type: 'note', tags: ['network'], summary: 'Hardware addressing notes' },
-      { id: 'courage', title: 'Courage', source_type: 'note', tags: ['philosophy'], summary: 'Thoughts on fear and action' },
-      { id: 'pain', title: 'Pain', source_type: 'note', tags: ['health'], summary: 'Reflections on endurance' }
-    ];
-    const edges = [
-      { source: 'keerthan-test-1', target: 'chapter-1', similarity: null },
-      { source: 'draft', target: 'people', similarity: 0.65 },
-      { source: 'orchard', target: 'draft', similarity: 0.42 },
-      { source: 'courage', target: 'pain', similarity: 0.55 },
-      { source: 'msme', target: 'git', similarity: 0.38 }
-    ];
-    return { nodes, edges, search_history: [], search_history_status: 'ok' };
+    return { nodes: [], edges: [], search_history: [], search_history_status: 'ok' };
   }
   if (cmd === 'search_bookmarks') {
     return [];
@@ -206,31 +143,42 @@ function mockBackend(cmd, args) {
 // 3. VAULT DATA LOADING & TREE VIEW
 // -------------------------------------------------------------
 async function loadVault() {
-  // Prepopulate initial notes into memory
-  [...INITIAL_WRITING_NOTES, ...INITIAL_QUICK_NOTES].forEach(n => {
-    state.notesById.set(n.id, n);
-  });
+  state.notesById.clear();
 
   try {
     const res = await tauriInvoke('get_vault_structure');
-    if (res && res.bookmarks && res.bookmarks.length > 0) {
-      res.bookmarks.forEach(bm => {
-        state.notesById.set(bm.id, {
-          id: bm.id,
-          title: bm.title,
-          folder: bm.folder || 'Web Bookmarks',
-          content: bm.content_preview || bm.summary || '',
-          source_url: bm.source_url,
-          tags: bm.tags,
-          created_at: bm.created_at,
-          source_type: bm.source_type
+    if (res) {
+      if (res.folders && Array.isArray(res.folders)) {
+        state.folders = res.folders.filter(f => f !== 'Writing');
+      }
+      if (res.bookmarks && Array.isArray(res.bookmarks)) {
+        res.bookmarks.forEach(bm => {
+          const folder = (bm.folder === 'Writing' || !bm.folder) ? 'Web Bookmarks' : bm.folder;
+          state.notesById.set(bm.id, {
+            id: bm.id,
+            title: bm.title || bm.id,
+            folder: folder,
+            content: bm.content_preview || bm.summary || '',
+            source_url: bm.source_url,
+            tags: bm.tags || [],
+            created_at: bm.created_at,
+            source_type: bm.source_type
+          });
         });
-      });
+      }
+    }
+
+    // Open first real bookmark in tabs if only graph-view was open
+    if (state.notesById.size > 0 && state.openTabs.length === 1 && state.openTabs[0].id === 'graph-view') {
+      const firstNote = Array.from(state.notesById.values())[0];
+      state.openTabs.unshift({ id: firstNote.id, title: firstNote.title });
+      state.currentTabId = firstNote.id;
     }
   } catch (err) {
     console.warn('Vault load error:', err);
   }
 
+  renderTabs();
   renderSidebarTree();
 }
 
@@ -241,28 +189,37 @@ function renderSidebarTree(filterText = '') {
   const filter = filterText.toLowerCase().trim();
   const allNotes = Array.from(state.notesById.values());
 
-  // Group notes into folders
+  if (allNotes.length === 0) {
+    container.innerHTML = `
+      <div style="padding: 24px 16px; text-align: center; color: var(--text-muted); font-size: 12.5px;">
+        <p style="margin-bottom: 8px;">No bookmarks found.</p>
+        <p style="font-size: 11px; opacity: 0.8;">Click <strong>Bookmark file</strong> above or press <kbd style="background: rgba(255,255,255,0.1); padding: 2px 5px; border-radius: 4px;">Ctrl+Shift+O</kbd> to add files.</p>
+      </div>
+    `;
+    return;
+  }
+
+  // Group notes into folders (never include 'Writing')
   const groups = new Map();
-  groups.set('Writing', []);
-  groups.set('Web Bookmarks', []);
-  groups.set('Images & OCR', []);
-  groups.set('Documents', []);
-  groups.set('Quick Notes', []);
+  const validFolders = (state.folders || ['Web Bookmarks', 'Images & OCR', 'Documents', 'Quick Notes']).filter(f => f !== 'Writing');
+  validFolders.forEach(f => groups.set(f, []));
 
   for (const note of allNotes) {
     if (filter) {
-      const matchTitle = note.title.toLowerCase().includes(filter);
+      const matchTitle = (note.title || '').toLowerCase().includes(filter);
       const matchTags = (note.tags || []).some(t => t.toLowerCase().includes(filter));
       if (!matchTitle && !matchTags) continue;
     }
 
-    const fName = groups.has(note.folder) ? note.folder : 'Quick Notes';
+    let fName = groups.has(note.folder) ? note.folder : 'Web Bookmarks';
+    if (!groups.has(fName)) groups.set(fName, []);
     groups.get(fName).push(note);
   }
 
   container.innerHTML = '';
 
   for (const [folderName, items] of groups.entries()) {
+    if (items.length === 0) continue; // Only show non-empty folders
     if (filter && items.length === 0) continue;
 
     const folderEl = document.createElement('div');
@@ -272,11 +229,26 @@ function renderSidebarTree(filterText = '') {
     headerEl.className = 'tree-folder-header';
     headerEl.innerHTML = `
       <span class="folder-arrow">&#9658;</span>
-      <span class="folder-name">${folderName}</span>
+      <span class="folder-name">${escapeHtml(folderName)}</span>
       <span class="folder-count">${items.length}</span>
+      <button class="tree-folder-delete" title="Delete Folder" data-folder="${escapeHtml(folderName)}">🗑</button>
     `;
 
-    headerEl.addEventListener('click', () => {
+    headerEl.addEventListener('click', (e) => {
+      if (e.target.closest('.tree-folder-delete')) {
+        e.stopPropagation();
+        const fName = e.target.closest('.tree-folder-delete').dataset.folder;
+        if (confirm(`Delete folder "${fName}" and all ${items.length} items inside?`)) {
+          tauriInvoke('delete_folder', { folder: fName }).then(() => {
+            items.forEach(it => state.notesById.delete(it.id));
+            state.openTabs = state.openTabs.filter(t => !items.some(it => it.id === t.id));
+            showToast(`Folder "${fName}" deleted.`);
+            renderTabs();
+            renderSidebarTree();
+          }).catch(err => showToast(`Delete failed: ${err}`));
+        }
+        return;
+      }
       folderEl.classList.toggle('open');
     });
 
@@ -288,17 +260,31 @@ function renderSidebarTree(filterText = '') {
       itemEl.className = `tree-item ${state.currentTabId === note.id ? 'active' : ''}`;
       itemEl.dataset.noteId = note.id;
 
-      let badgeHtml = note.badge ? `<span class="tree-item-badge">${note.badge}</span>` : '';
-      if (!badgeHtml && note.source_type && note.source_type !== 'note') {
-        badgeHtml = `<span class="tree-item-badge">${note.source_type}</span>`;
+      let badgeHtml = '';
+      if (note.source_type && note.source_type !== 'note') {
+        badgeHtml = `<span class="tree-item-badge">${escapeHtml(note.source_type)}</span>`;
       }
 
       itemEl.innerHTML = `
         <span class="tree-item-title">${escapeHtml(note.title)}</span>
         ${badgeHtml}
+        <button class="tree-item-delete" title="Delete file" data-id="${escapeHtml(note.id)}">&times;</button>
       `;
 
-      itemEl.addEventListener('click', () => {
+      itemEl.addEventListener('click', (e) => {
+        if (e.target.closest('.tree-item-delete')) {
+          e.stopPropagation();
+          const nId = e.target.closest('.tree-item-delete').dataset.id;
+          if (confirm(`Delete bookmark "${note.title}"?`)) {
+            tauriInvoke('delete_bookmark', { id: nId }).then(() => {
+              state.notesById.delete(nId);
+              closeTab(nId);
+              showToast(`Bookmark deleted.`);
+              renderSidebarTree();
+            }).catch(err => showToast(`Delete failed: ${err}`));
+          }
+          return;
+        }
         openNote(note.id);
       });
 
@@ -314,11 +300,28 @@ function renderSidebarTree(filterText = '') {
 // -------------------------------------------------------------
 // 4. NOTE OPENING & EDITOR VIEW
 // -------------------------------------------------------------
-function openNote(noteId) {
+async function openNote(noteId) {
   let note = state.notesById.get(noteId);
   if (!note) {
-    note = { id: noteId, title: noteId, content: `# ${noteId}\n\n`, folder: 'Quick Notes' };
+    note = { id: noteId, title: noteId, content: `# ${noteId}\n\n`, folder: 'Documents' };
     state.notesById.set(noteId, note);
+  }
+
+  // Fetch full details & OCR text from backend
+  try {
+    const detail = await tauriInvoke('get_bookmark_detail', { id: noteId });
+    if (detail) {
+      note = {
+        ...note,
+        ...detail,
+        content: detail.captured_text || detail.ocr_text || note.content || '',
+        ocr_text: detail.ocr_text,
+        path: detail.path
+      };
+      state.notesById.set(noteId, note);
+    }
+  } catch (e) {
+    showToast(`Could not load bookmark details: ${e}`);
   }
 
   // Ensure tab exists
@@ -363,7 +366,7 @@ function openNote(noteId) {
       tagsContainer.appendChild(pill);
     });
 
-    dateEl.textContent = note.created_at ? new Date(note.created_at * 1000).toLocaleString() : 'Recently captured';
+    dateEl.textContent = note.created_at ? new Date(note.created_at * 1000).toLocaleString() : 'Captured';
   } else {
     metaCard.classList.add('hidden');
   }
@@ -372,10 +375,10 @@ function openNote(noteId) {
   const readerEl = document.getElementById('note-reader-content');
   const editorEl = document.getElementById('note-editor-content');
 
-  readerEl.innerHTML = renderMarkdown(note.content);
-  editorEl.value = note.content;
+  readerEl.innerHTML = formatBookmarkView(note);
+  editorEl.value = note.content || '';
 
-  updateWordCounts(note.content);
+  updateWordCounts(note.content || '');
   renderSidebarTree(document.getElementById('sidebar-filter-input').value);
 }
 
@@ -453,7 +456,7 @@ function renderTabs() {
 function closeTab(tabId) {
   state.openTabs = state.openTabs.filter(t => t.id !== tabId);
   if (state.openTabs.length === 0) {
-    state.openTabs.push({ id: 'draft', title: 'draft' });
+    state.openTabs.push({ id: 'graph-view', title: 'Graph view', isGraph: true });
   }
   if (state.currentTabId === tabId) {
     const nextTab = state.openTabs[state.openTabs.length - 1];
@@ -492,22 +495,22 @@ async function loadAndRenderGraph() {
     console.warn('Could not fetch graph data, using fallback:', e);
   }
 
-  if (!rawData || !rawData.nodes || rawData.nodes.length === 0) {
+  if (!rawData || !Array.isArray(rawData.nodes)) {
     rawData = mockBackend('get_graph_data');
   }
 
-  // Populate graph nodes with force physics variables
+  // Populate graph nodes with force physics variables spread across wide area
   const nodeCount = rawData.nodes.length;
   const nodes = rawData.nodes.map((n, i) => {
     const angle = i * 2.399;
-    const r = Math.min(width, height) * 0.28 * Math.sqrt((i + 1) / nodeCount);
+    const r = Math.min(width, height) * 0.75 * Math.sqrt((i + 1) / nodeCount);
     return {
       ...n,
       x: Math.cos(angle) * r,
       y: Math.sin(angle) * r,
       vx: 0,
       vy: 0,
-      radius: n.id === 'draft' || n.id === 'keerthan-test-1' || n.id === 'chapter-1' ? 7.5 : 5
+      radius: 3.5
     };
   });
 
@@ -521,13 +524,23 @@ async function loadAndRenderGraph() {
     adj.get(e.target).push({ target: nodeMap.get(e.source), edge: e });
   }
 
-  let scale = 1.0;
+  let scale = 0.95;
   let offsetX = width / 2;
   let offsetY = height / 2;
   let isDragging = false;
   let dragNode = null;
   let hoveredNode = null;
+  let selectedNode = null;
   let lastMouse = { x: 0, y: 0 };
+  let mouseDownPosition = null;
+  let pressedNode = null;
+  let dragMoved = false;
+  let lastGraphActivation = { id: null, surface: null, time: 0, x: null, y: null };
+  const miniPanel = document.getElementById('graph-mini-panel');
+  const miniCanvas = document.getElementById('graph-mini-canvas');
+  const miniTitle = document.getElementById('graph-mini-title');
+  const miniCount = document.getElementById('graph-mini-count');
+  let miniHitTargets = [];
 
   const tooltip = document.getElementById('graph-node-tooltip');
   const searchInput = document.getElementById('graph-search-input');
@@ -541,11 +554,11 @@ async function loadAndRenderGraph() {
 
   function tick() {
     const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
-    const repulsion = sliderRep ? parseFloat(sliderRep.value) : 950;
-    const baseLinkDist = sliderDist ? parseFloat(sliderDist.value) : 110;
-    const nodeBaseRadius = sliderSize ? parseFloat(sliderSize.value) : 6;
+    const repulsion = sliderRep ? parseFloat(sliderRep.value) : 3200;
+    const baseLinkDist = sliderDist ? parseFloat(sliderDist.value) : 190;
+    const nodeBaseRadius = sliderSize ? parseFloat(sliderSize.value) : 3.5;
 
-    // Repulsion between pairs
+    // Repulsion between pairs (strong Obsidian spread)
     for (let i = 0; i < nodes.length; i++) {
       const a = nodes[i];
       if (a === dragNode) continue;
@@ -553,14 +566,14 @@ async function loadAndRenderGraph() {
         const b = nodes[j];
         const dx = b.x - a.x;
         const dy = b.y - a.y;
-        const d2 = dx * dx + dy * dy + 1;
+        const d2 = dx * dx + dy * dy + 60;
         const force = repulsion / d2;
         const fx = (dx / Math.sqrt(d2)) * force;
         const fy = (dy / Math.sqrt(d2)) * force;
-        a.vx -= fx * 0.005;
-        a.vy -= fy * 0.005;
-        b.vx += fx * 0.005;
-        b.vy += fy * 0.005;
+        a.vx -= fx * 0.0035;
+        a.vy -= fy * 0.0035;
+        b.vx += fx * 0.0035;
+        b.vy += fy * 0.0035;
       }
     }
 
@@ -571,8 +584,8 @@ async function loadAndRenderGraph() {
       const dx = b.x - a.x;
       const dy = b.y - a.y;
       const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-      const targetDist = edge.similarity ? baseLinkDist * (1.2 - edge.similarity * 0.5) : baseLinkDist;
-      const force = (dist - targetDist) * 0.004;
+      const targetDist = edge.similarity ? baseLinkDist * (1.3 - edge.similarity * 0.6) : baseLinkDist;
+      const force = (dist - targetDist) * 0.0025;
 
       const fx = (dx / dist) * force;
       const fy = (dy / dist) * force;
@@ -580,21 +593,13 @@ async function loadAndRenderGraph() {
       if (b !== dragNode) { b.vx -= fx; b.vy -= fy; }
     }
 
-    // Velocity update & damping
+    // Velocity update & damping (natural Obsidian feel, no boundary clamping)
     for (const n of nodes) {
       if (n === dragNode) continue;
-      n.vx *= 0.88;
-      n.vy *= 0.88;
+      n.vx *= 0.85;
+      n.vy *= 0.85;
       n.x += n.vx;
       n.y += n.vy;
-
-      // Keep within circular radius
-      const r = Math.hypot(n.x, n.y);
-      const maxR = Math.min(width, height) * 0.42;
-      if (r > maxR) {
-        n.x *= maxR / r;
-        n.y *= maxR / r;
-      }
     }
 
     // Render Canvas
@@ -603,68 +608,68 @@ async function loadAndRenderGraph() {
     ctx.translate(offsetX, offsetY);
     ctx.scale(scale, scale);
 
-    // Draw Edges
+    // Draw Edges (subtle hairline)
     for (const edge of edges) {
       const a = nodeMap.get(edge.source);
       const b = nodeMap.get(edge.target);
 
       const isConnectedToHovered = hoveredNode && (hoveredNode === a || hoveredNode === b);
-      const isHighlightedPair = (a.id === 'keerthan-test-1' && b.id === 'chapter-1') || (a.id === 'chapter-1' && b.id === 'keerthan-test-1');
 
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
 
-      if (isHighlightedPair || isConnectedToHovered) {
-        ctx.strokeStyle = '#c792ea';
-        ctx.lineWidth = 2.2;
-        ctx.shadowColor = '#c792ea';
-        ctx.shadowBlur = 8;
+      if (isConnectedToHovered) {
+        ctx.strokeStyle = 'rgba(192, 132, 252, 0.75)';
+        ctx.lineWidth = 1.4;
       } else if (edge.similarity !== null) {
-        ctx.strokeStyle = 'rgba(97, 197, 255, 0.35)';
-        ctx.lineWidth = Math.max(0.8, edge.similarity * 2.2);
-        ctx.shadowBlur = 0;
+        ctx.strokeStyle = 'rgba(125, 207, 255, 0.2)';
+        ctx.lineWidth = 0.6;
       } else {
-        ctx.strokeStyle = 'rgba(199, 146, 234, 0.3)';
-        ctx.lineWidth = 1.0;
-        ctx.shadowBlur = 0;
+        ctx.strokeStyle = 'rgba(148, 163, 184, 0.12)';
+        ctx.lineWidth = 0.5;
       }
       ctx.stroke();
-      ctx.shadowBlur = 0;
     }
 
-    // Draw Nodes
+    // Draw Nodes (Obsidian-style glowing stars)
     const showLabels = chkLabels ? chkLabels.checked : true;
 
     for (const n of nodes) {
       const matchesSearch = !query || n.title.toLowerCase().includes(query);
       const isHovered = hoveredNode === n;
-      const isHighlightNode = n.id === 'chapter-1' || n.id === 'keerthan-test-1';
+      const isSelected = selectedNode === n;
+      const isNeighbor = hoveredNode && adj.get(hoveredNode.id)?.some(item => item.target === n);
 
-      const r = isHovered ? nodeBaseRadius * 1.5 : (isHighlightNode ? nodeBaseRadius * 1.25 : nodeBaseRadius);
+      const r = isHovered ? nodeBaseRadius * 1.6 : (isSelected ? nodeBaseRadius * 1.5 : (isNeighbor ? nodeBaseRadius * 1.25 : nodeBaseRadius));
 
       ctx.beginPath();
       ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
 
       if (!matchesSearch) {
-        ctx.fillStyle = 'rgba(120, 120, 120, 0.2)';
-      } else if (isHovered || isHighlightNode) {
-        ctx.fillStyle = isHighlightNode ? '#a855f7' : '#ffffff';
-        ctx.shadowColor = '#c792ea';
-        ctx.shadowBlur = 14;
+        ctx.fillStyle = 'rgba(80, 85, 100, 0.2)';
+      } else if (isHovered || isSelected) {
+        ctx.fillStyle = '#ffffff';
+        ctx.shadowColor = '#c084fc';
+        ctx.shadowBlur = 10;
+      } else if (isNeighbor) {
+        ctx.fillStyle = '#c084fc';
+        ctx.shadowColor = '#c084fc';
+        ctx.shadowBlur = 6;
       } else {
-        ctx.fillStyle = n.source_type === 'web' ? '#61c5ff' : '#9ca3af';
+        ctx.fillStyle = n.source_type === 'web' ? '#7aa2f7' : (n.source_type === 'image' || n.source_type === 'screenshot') ? '#bb9af7' : '#34d399';
         ctx.shadowBlur = 0;
       }
       ctx.fill();
       ctx.shadowBlur = 0;
 
-      // Label
-      if (showLabels && (scale > 0.65 || isHovered || isHighlightNode) && matchesSearch) {
-        ctx.font = `${isHovered || isHighlightNode ? '600' : '400'} ${11 / Math.max(0.8, scale)}px Inter, sans-serif`;
-        ctx.fillStyle = isHovered || isHighlightNode ? '#ffffff' : 'rgba(220, 220, 225, 0.7)';
+      // Draw Labels ONLY on hover, direct neighbors, or high zoom level
+      if (showLabels && matchesSearch && (isHovered || isSelected || isNeighbor || scale > 1.35)) {
+        ctx.font = `400 ${10 / Math.max(0.8, scale)}px Inter, sans-serif`;
+        ctx.fillStyle = isHovered ? '#ffffff' : 'rgba(203, 213, 225, 0.85)';
         ctx.textAlign = 'center';
-        ctx.fillText(n.title, n.x, n.y + r + 13);
+        const displayTitle = n.title.length > 22 ? `${n.title.slice(0, 20)}...` : n.title;
+        ctx.fillText(displayTitle, n.x, n.y + r + 10);
       }
     }
 
@@ -696,9 +701,101 @@ async function loadAndRenderGraph() {
     return null;
   }
 
+  function selectGraphNode(node) {
+    selectedNode = node;
+    if (!node || !miniPanel || !miniCanvas) return;
+
+    const connections = adj.get(node.id) || [];
+    const dpr = window.devicePixelRatio || 1;
+    const miniWidth = miniCanvas.clientWidth || 326;
+    const miniHeight = miniCanvas.clientHeight || 190;
+    miniCanvas.width = Math.round(miniWidth * dpr);
+    miniCanvas.height = Math.round(miniHeight * dpr);
+    const miniCtx = miniCanvas.getContext('2d');
+    miniCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    miniCtx.clearRect(0, 0, miniWidth, miniHeight);
+
+    const center = { x: miniWidth / 2, y: miniHeight / 2 };
+    const orbit = Math.max(30, Math.min(miniWidth * 0.39, miniHeight * 0.34));
+    miniHitTargets = [{ node, x: center.x, y: center.y, radius: 8 }];
+    const neighborPositions = connections.map((item, index) => {
+      const angle = (2 * Math.PI * index / Math.max(1, connections.length)) - Math.PI / 2;
+      return {
+        node: item.target,
+        x: center.x + Math.cos(angle) * orbit,
+        y: center.y + Math.sin(angle) * orbit,
+        radius: 6
+      };
+    });
+    miniHitTargets.push(...neighborPositions);
+
+    for (const item of connections) {
+      const target = neighborPositions.find(position => position.node.id === item.target.id);
+      if (!target) continue;
+      miniCtx.beginPath();
+      miniCtx.moveTo(center.x, center.y);
+      miniCtx.lineTo(target.x, target.y);
+      miniCtx.strokeStyle = item.edge.similarity !== null
+        ? 'rgba(125, 207, 255, 0.55)'
+        : 'rgba(192, 132, 252, 0.55)';
+      miniCtx.lineWidth = 1;
+      miniCtx.stroke();
+    }
+
+    for (const target of miniHitTargets) {
+      miniCtx.beginPath();
+      miniCtx.arc(target.x, target.y, target.radius, 0, Math.PI * 2);
+      miniCtx.fillStyle = target.node.id === node.id
+        ? '#ffffff'
+        : target.node.source_type === 'web' ? '#7aa2f7' : '#bb9af7';
+      miniCtx.shadowColor = target.node.id === node.id ? '#c084fc' : 'transparent';
+      miniCtx.shadowBlur = target.node.id === node.id ? 8 : 0;
+      miniCtx.fill();
+      miniCtx.shadowBlur = 0;
+      const label = target.node.title.length > 20
+        ? `${target.node.title.slice(0, 18)}...`
+        : target.node.title;
+      miniCtx.font = '10px Inter, sans-serif';
+      miniCtx.fillStyle = '#d1d5db';
+      miniCtx.textAlign = 'center';
+      miniCtx.fillText(label, target.x, target.y + target.radius + 12);
+    }
+
+    miniTitle.textContent = node.title;
+    miniCount.textContent = connections.length === 1
+      ? '1 direct connection'
+      : `${connections.length} direct connections`;
+    miniPanel.classList.remove('hidden');
+  }
+
+  function activateGraphNode(node, surface, position = null) {
+    const now = performance.now();
+    if (
+      lastGraphActivation.id === node.id &&
+      lastGraphActivation.surface === surface &&
+      now - lastGraphActivation.time <= 500
+    ) {
+      lastGraphActivation = { id: null, surface: null, time: 0, x: null, y: null };
+      openNote(node.id);
+      return;
+    }
+
+    lastGraphActivation = {
+      id: node.id,
+      surface,
+      time: now,
+      x: position?.x ?? null,
+      y: position?.y ?? null
+    };
+    selectGraphNode(node);
+  }
+
   canvas.onmousedown = (e) => {
     const { gx, gy, screenX, screenY } = getMouseGraphCoords(e);
+    mouseDownPosition = { x: screenX, y: screenY };
+    dragMoved = false;
     const hit = findNodeUnder(gx, gy);
+    pressedNode = hit;
     if (hit) {
       dragNode = hit;
     } else {
@@ -709,6 +806,10 @@ async function loadAndRenderGraph() {
 
   canvas.onmousemove = (e) => {
     const { gx, gy, screenX, screenY } = getMouseGraphCoords(e);
+
+    if (mouseDownPosition && Math.hypot(screenX - mouseDownPosition.x, screenY - mouseDownPosition.y) > 4) {
+      dragMoved = true;
+    }
 
     if (dragNode) {
       dragNode.x = gx;
@@ -755,15 +856,46 @@ async function loadAndRenderGraph() {
   window.onmouseup = () => {
     isDragging = false;
     dragNode = null;
+    mouseDownPosition = null;
   };
 
   canvas.onclick = (e) => {
-    const { gx, gy } = getMouseGraphCoords(e);
-    const hit = findNodeUnder(gx, gy);
-    if (hit) {
-      openNote(hit.id);
+    if (dragMoved) {
+      dragMoved = false;
+      pressedNode = null;
+      return;
     }
+    const { gx, gy } = getMouseGraphCoords(e);
+    const hit = pressedNode || findNodeUnder(gx, gy);
+    pressedNode = null;
+    if (hit) activateGraphNode(hit, 'main');
   };
+
+  miniCanvas?.addEventListener('click', (e) => {
+    const rect = miniCanvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const now = performance.now();
+    if (
+      lastGraphActivation.surface === 'mini' &&
+      now - lastGraphActivation.time <= 500 &&
+      lastGraphActivation.x !== null &&
+      Math.hypot(lastGraphActivation.x - x, lastGraphActivation.y - y) <= 20
+    ) {
+      const noteId = lastGraphActivation.id;
+      lastGraphActivation = { id: null, surface: null, time: 0, x: null, y: null };
+      openNote(noteId);
+      return;
+    }
+    const hit = [...miniHitTargets].reverse().find(target =>
+      Math.hypot(target.x - x, target.y - y) <= target.radius + 7
+    );
+    if (hit) activateGraphNode(hit.node, 'mini', { x, y });
+  });
+  document.getElementById('btn-graph-mini-close')?.addEventListener('click', () => {
+    miniPanel?.classList.add('hidden');
+    selectedNode = null;
+  });
 
   canvas.onwheel = (e) => {
     e.preventDefault();
@@ -810,15 +942,134 @@ async function triggerBookmarkFile() {
   }
 }
 
+async function triggerCaptureSelection() {
+  try {
+    showToast('Capturing selected text...');
+    const bm = await tauriInvoke('capture_selection');
+    if (!bm) {
+      showToast('No selected text was captured.');
+      return;
+    }
+
+    await loadVault();
+    openNote(bm.id);
+    showToast('Selection bookmarked!');
+  } catch (err) {
+    showToast(`Selection: ${err || 'Failed'}`);
+  }
+}
+
+const lastShortcutTime = new Map();
+
+function runShortcutOnce(key) {
+  const now = Date.now();
+  if (now - (lastShortcutTime.get(key) || 0) < 500) return;
+  lastShortcutTime.set(key, now);
+
+  if (key === 'o') {
+    triggerBookmarkFile();
+  } else if (key === 's') {
+    showToast('📸 Select screen area for screenshot...');
+    tauriInvoke('capture_screenshot').then(async bm => {
+      await loadVault();
+      showToast('📸 Screenshot captured and bookmarked!');
+      if (bm && bm.id) openNote(bm.id);
+    }).catch(err => {
+      showToast(`Screenshot: ${err || 'Cancelled'}`);
+    });
+  } else if (key === 'b') {
+    triggerCaptureSelection();
+  } else if (key === 'f') {
+    openSearchModal();
+  } else if (key === 'r') {
+    showToast('🔍 Reading the full screen for context...');
+    tauriInvoke('analyze_screen_text').then(data => {
+      if (data) openSearchModalWithQuery(data.query, data.results);
+    }).catch(err => {
+      showToast(`Screen Analysis: ${err || 'No readable text detected'}`);
+    });
+  } else if (key === 'g') {
+    showGraphView();
+  }
+}
+
+async function openChromeSyncModal() {
+  const modal = document.getElementById('chrome-sync-modal');
+  const profileSelect = document.getElementById('chrome-profile-select');
+  const status = document.getElementById('chrome-sync-status');
+  const syncButton = document.getElementById('btn-confirm-chrome-sync');
+  status.textContent = 'Checking Chrome profiles...';
+  profileSelect.replaceChildren();
+  syncButton.disabled = true;
+  modal.classList.remove('hidden');
+
+  try {
+    const profiles = await tauriInvoke('get_chrome_profiles');
+    if (!Array.isArray(profiles) || profiles.length === 0) {
+      status.textContent = 'No readable Chrome profiles were found on this computer.';
+      return;
+    }
+    for (const profile of profiles) {
+      const option = document.createElement('option');
+      option.value = profile.id;
+      option.textContent = `${profile.name} (${profile.bookmark_count} bookmarks)`;
+      profileSelect.appendChild(option);
+    }
+    status.textContent = `${profiles.length} Chrome profile${profiles.length === 1 ? '' : 's'} found.`;
+    syncButton.disabled = false;
+  } catch (error) {
+    status.textContent = `Could not list Chrome profiles: ${error}`;
+  }
+}
+
+async function syncSelectedChromeProfile() {
+  const status = document.getElementById('chrome-sync-status');
+  const syncButton = document.getElementById('btn-confirm-chrome-sync');
+  const profileId = document.getElementById('chrome-profile-select').value;
+  if (!profileId) {
+    status.textContent = 'Select a Chrome profile to sync.';
+    return;
+  }
+
+  syncButton.disabled = true;
+  syncButton.textContent = 'Syncing...';
+  status.textContent = 'Reading bookmarks and syncing them to your local vault...';
+  try {
+    const result = await tauriInvoke('sync_chrome_bookmarks', { profileId });
+    await loadVault();
+    if (document.getElementById('view-graph')?.classList.contains('active')) {
+      await loadAndRenderGraph();
+    }
+    const failureText = result.page_content_failures
+      ? ` ${result.page_content_failures} page(s) could not be enriched with webpage text.`
+      : '';
+    status.textContent = `Synced ${result.synced} bookmarks.${failureText}`;
+    showToast(`Chrome sync complete: ${result.synced} bookmarks.`);
+  } catch (error) {
+    status.textContent = `Chrome sync failed: ${error}`;
+  } finally {
+    syncButton.disabled = false;
+    syncButton.textContent = 'Sync profile';
+  }
+}
+
 // -------------------------------------------------------------
 // 8. GLOBAL HOTKEYS & EVENT WIRING
 // -------------------------------------------------------------
-function setupEventListeners() {
-  // Rainbow Bookmark Button (Image 3)
+async function setupEventListeners() {
+  // Rainbow Bookmark Button (Image 3) & Ribbon Bookmark Button
   const rainbowBtn = document.getElementById('rainbow-bookmark-btn');
   if (rainbowBtn) {
     rainbowBtn.addEventListener('click', triggerBookmarkFile);
   }
+  document.getElementById('ribbon-bookmark-file-btn')?.addEventListener('click', triggerBookmarkFile);
+  document.getElementById('btn-sync-chrome-bookmarks')?.addEventListener('click', openChromeSyncModal);
+  document.getElementById('btn-confirm-chrome-sync')?.addEventListener('click', syncSelectedChromeProfile);
+  const closeChromeSyncModal = () => {
+    document.getElementById('chrome-sync-modal')?.classList.add('hidden');
+  };
+  document.getElementById('btn-close-chrome-sync-modal')?.addEventListener('click', closeChromeSyncModal);
+  document.getElementById('btn-cancel-chrome-sync')?.addEventListener('click', closeChromeSyncModal);
 
   // Ribbon Buttons
   document.getElementById('ribbon-files-btn')?.addEventListener('click', () => {
@@ -834,21 +1085,21 @@ function setupEventListeners() {
       input.focus();
     }
   });
-  document.getElementById('ribbon-screenshot-btn')?.addEventListener('click', async () => {
-    showToast('Taking screenshot...');
-    await tauriInvoke('capture_screenshot');
-    showToast('Screenshot saved to vault.');
-    loadVault();
-  });
-  document.getElementById('ribbon-screen-search-btn')?.addEventListener('click', async () => {
-    showToast('Analyzing screen text (Ctrl+Shift+R)...');
-    try {
-      const results = await tauriInvoke('analyze_screen_text');
-      showToast(`Found ${results ? results.length : 0} matching bookmarks`);
-      openSearchModal();
-      renderSearchResults(results);
-    } catch (e) {
-      showToast(`Screen search: ${e}`);
+  // Delete Current Note Button
+  document.getElementById('btn-delete-current-note')?.addEventListener('click', async () => {
+    const noteId = state.currentTabId;
+    const note = state.notesById.get(noteId);
+    if (!note) return;
+    if (confirm(`Delete bookmark "${note.title}"?`)) {
+      try {
+        await tauriInvoke('delete_bookmark', { id: noteId });
+        state.notesById.delete(noteId);
+        closeTab(noteId);
+        showToast('Bookmark deleted.');
+        renderSidebarTree();
+      } catch (err) {
+        showToast(`Delete failed: ${err}`);
+      }
     }
   });
 
@@ -950,60 +1201,61 @@ function setupEventListeners() {
 
   // Keyboard Shortcuts inside Window
   window.addEventListener('keydown', (e) => {
-    // Ctrl + Shift + O -> Bookmark File
-    if (e.ctrlKey && e.shiftKey && (e.key === 'O' || e.key === 'o')) {
+    const shortcutKey = e.key.toLowerCase();
+    if (e.ctrlKey && e.shiftKey && ['o', 's', 'b', 'f', 'r', 'g'].includes(shortcutKey)) {
       e.preventDefault();
-      triggerBookmarkFile();
-    }
-    // Ctrl + Shift + S -> Screenshot
-    else if (e.ctrlKey && e.shiftKey && (e.key === 'S' || e.key === 's')) {
-      e.preventDefault();
-      tauriInvoke('capture_screenshot');
-      showToast('Screenshot taken.');
-    }
-    // Ctrl + Shift + B -> Capture Selection
-    else if (e.ctrlKey && e.shiftKey && (e.key === 'B' || e.key === 'b')) {
-      e.preventDefault();
-      tauriInvoke('capture_selection');
-      showToast('Bookmark selection saved.');
-    }
-    // Ctrl + Shift + F -> Search Bookmarks
-    else if (e.ctrlKey && e.shiftKey && (e.key === 'F' || e.key === 'f')) {
-      e.preventDefault();
-      openSearchModal();
-    }
-    // Ctrl + Shift + R -> Screen Text Analysis
-    else if (e.ctrlKey && e.shiftKey && (e.key === 'R' || e.key === 'r')) {
-      e.preventDefault();
-      showToast('Analyzing screen text (Ctrl+Shift+R)...');
-      tauriInvoke('analyze_screen_text').then(results => {
-        openSearchModal();
-        renderSearchResults(results);
-      });
-    }
-    // Ctrl + Shift + G -> Graph View
-    else if (e.ctrlKey && e.shiftKey && (e.key === 'G' || e.key === 'g')) {
-      e.preventDefault();
-      showGraphView();
+      runShortcutOnce(shortcutKey);
     }
     // Escape closes modals
     else if (e.key === 'Escape') {
       document.getElementById('search-modal').classList.add('hidden');
       document.getElementById('settings-modal').classList.add('hidden');
+      document.getElementById('chrome-sync-modal').classList.add('hidden');
     }
   });
 
   // Listen to Tauri backend events if Tauri event emitter is available
   if (window.__TAURI__ && window.__TAURI__.event) {
-    window.__TAURI__.event.listen('hotkey-bookmark-file', triggerBookmarkFile);
-    window.__TAURI__.event.listen('hotkey-search', openSearchModal);
-    window.__TAURI__.event.listen('hotkey-screen-search', () => {
-      showToast('Screen search triggered.');
-      openSearchModal();
-    });
-    window.__TAURI__.event.listen('open-graph-view', showGraphView);
+    const shortcutListeners = [
+      window.__TAURI__.event.listen('hotkey-bookmark-file', () => runShortcutOnce('o')),
+      window.__TAURI__.event.listen('hotkey-capture-selection', () => runShortcutOnce('b')),
+      window.__TAURI__.event.listen('hotkey-capture-screenshot', () => runShortcutOnce('s')),
+      window.__TAURI__.event.listen('hotkey-search', () => runShortcutOnce('f')),
+      window.__TAURI__.event.listen('hotkey-analyze-screen', () => runShortcutOnce('r')),
+      window.__TAURI__.event.listen('open-graph-view', () => runShortcutOnce('g')),
+    ];
     window.__TAURI__.event.listen('tray-bookmark-file', triggerBookmarkFile);
-    window.__TAURI__.event.listen('tray-screen-search', openSearchModal);
+
+    // Screenshot events (Ctrl+Shift+S or System Tray)
+    window.__TAURI__.event.listen('screenshot-in-progress', () => {
+      showToast('📸 Select screen area for screenshot...');
+    });
+    window.__TAURI__.event.listen('screenshot-captured', async (event) => {
+      const bm = event.payload;
+      await loadVault();
+      showToast('📸 Screenshot captured and bookmarked!');
+      if (bm && bm.id) {
+        openNote(bm.id);
+      }
+    });
+    window.__TAURI__.event.listen('screenshot-error', (event) => {
+      showToast(`Screenshot: ${event.payload || 'Cancelled'}`);
+    });
+
+    // Screen Analyze events (Ctrl+Shift+R or System Tray)
+    window.__TAURI__.event.listen('screen-search-in-progress', () => {
+      showToast('🔍 Reading the full screen for context...');
+    });
+    window.__TAURI__.event.listen('screen-search-results', (event) => {
+      const data = event.payload;
+      if (data) {
+        openSearchModalWithQuery(data.query, data.results);
+      }
+    });
+    window.__TAURI__.event.listen('screen-search-error', (event) => {
+      showToast(`Screen Analysis: ${event.payload || 'No readable text detected'}`);
+    });
+    await Promise.all(shortcutListeners);
   }
 }
 
@@ -1017,11 +1269,44 @@ function openSearchModal() {
   tauriInvoke('search_bookmarks', { query: '' }).then(renderSearchResults);
 }
 
-function renderSearchResults(items = []) {
+function openSearchModalWithQuery(query, results = []) {
+  const modal = document.getElementById('search-modal');
+  modal.classList.remove('hidden');
+  const input = document.getElementById('modal-search-input');
+  input.value = query || '';
+  input.focus();
+  renderSearchResults(results, query);
+  showToast(`Analyzed screen: "${safeTruncateStr(query, 35)}"`);
+}
+
+function safeTruncateStr(str = '', max = 50) {
+  if (!str) return '';
+  return str.length > max ? str.slice(0, max) + '...' : str;
+}
+
+function renderSearchResults(items = [], activeQuery = '') {
   const container = document.getElementById('modal-search-results');
   container.innerHTML = '';
+
+  if (activeQuery) {
+    const banner = document.createElement('div');
+    banner.style.cssText = 'padding: 10px 16px; font-size: 12px; color: var(--text-accent); background: rgba(124, 77, 255, 0.08); border-bottom: 1px solid var(--border-subtle);';
+    banner.innerHTML = `🔍 Analyzed Screen Text (${items.length} match${items.length === 1 ? '' : 'es'}): <em>"${escapeHtml(safeTruncateStr(activeQuery, 50))}"</em>`;
+    container.appendChild(banner);
+  }
+
   if (!items || items.length === 0) {
-    container.innerHTML = '<div style="padding: 16px; color: var(--text-muted); font-size: 13px;">No bookmarks found.</div>';
+    if (activeQuery) {
+      const emptyBox = document.createElement('div');
+      emptyBox.style.cssText = 'padding: 16px; color: var(--text-muted); font-size: 13px; line-height: 1.5;';
+      emptyBox.innerHTML = `
+        <div>No existing bookmarks matched the screen text:</div>
+        <div style="margin-top: 8px; padding: 10px 12px; background: var(--bg-tertiary); border: 1px solid var(--border-subtle); border-radius: 6px; color: var(--text-normal); font-family: monospace; font-size: 12px; max-height: 140px; overflow-y: auto; white-space: pre-wrap;">${escapeHtml(activeQuery)}</div>
+      `;
+      container.appendChild(emptyBox);
+    } else {
+      container.innerHTML = '<div style="padding: 16px; color: var(--text-muted); font-size: 13px;">No bookmarks found.</div>';
+    }
     return;
   }
 
@@ -1050,23 +1335,125 @@ function showToast(message) {
 }
 
 // -------------------------------------------------------------
-// 9. UTILITIES (Markdown & Sanitization)
+// 9. UTILITIES (Markdown, OCR formatting, & Sanitization)
 // -------------------------------------------------------------
+window.copyOcrText = function(noteId) {
+  const note = state.notesById.get(noteId);
+  if (!note || !note.ocr_text) return;
+  navigator.clipboard.writeText(note.ocr_text).then(() => {
+    showToast('OCR text copied to clipboard!');
+  });
+};
+
+function formatBookmarkView(note) {
+  let html = '';
+
+  const isImage = note.source_type === 'image' || note.source_type === 'screenshot';
+  if (isImage && note.path) {
+    let imgSrc = '';
+    if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.convertFileSrc) {
+      imgSrc = window.__TAURI__.core.convertFileSrc(note.path);
+    } else {
+      imgSrc = `file:///${note.path.replace(/\\/g, '/')}`;
+    }
+
+    html += `
+      <div class="image-bookmark-preview">
+        <img src="${imgSrc}" alt="${escapeHtml(note.title)}" onerror="this.hidden=true;this.nextElementSibling.hidden=false" />
+        <p class="image-load-error" hidden>Could not load the captured image.</p>
+      </div>
+    `;
+
+    const ocr = note.ocr_text || note.content || '';
+    if (ocr) {
+      html += `
+        <div class="ocr-card">
+          <div class="ocr-card-header">
+            <span>Extracted OCR Text</span>
+            <button class="ocr-copy-btn" onclick="copyOcrText('${escapeHtml(note.id)}')">Copy Text</button>
+          </div>
+          <div class="ocr-content-text">${escapeHtml(ocr)}</div>
+        </div>
+      `;
+    }
+  }
+
+  const textContent = note.content || note.summary || '';
+  if (textContent && !isImage) {
+    html += renderMarkdown(textContent);
+  } else if (!isImage) {
+    html += '<p style="color: var(--text-faint); font-style: italic;">No text content available.</p>';
+  }
+
+  return html;
+}
+
 function renderMarkdown(md = '') {
   if (!md) return '';
-  return md
-    .split('\n\n')
-    .map(p => {
-      const trimmed = p.trim();
-      if (trimmed.startsWith('# ')) return `<h1>${escapeHtml(trimmed.slice(2))}</h1>`;
-      if (trimmed.startsWith('## ')) return `<h2>${escapeHtml(trimmed.slice(3))}</h2>`;
-      if (trimmed.startsWith('### ')) return `<h3>${escapeHtml(trimmed.slice(4))}</h3>`;
-      if (trimmed.startsWith('> ')) return `<blockquote>${escapeHtml(trimmed.slice(2))}</blockquote>`;
-      // Replace [[Note]] wiki links
-      const formatted = escapeHtml(trimmed).replace(/\[\[(.*?)\]\]/g, '<span class="tag-pill" style="cursor:pointer;" onclick="openNote(\'$1\')">[[$1]]</span>');
-      return `<p>${formatted}</p>`;
-    })
-    .join('');
+
+  let clean = md.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  // Code blocks ```...```
+  const codeBlocks = [];
+  clean = clean.replace(/```([\s\S]*?)```/g, (match, code) => {
+    const idx = codeBlocks.length;
+    codeBlocks.push(`<pre><code>${escapeHtml(code.trim())}</code></pre>`);
+    return `__CODEBLOCK_${idx}__`;
+  });
+
+  const paragraphs = clean.split(/\n{2,}/);
+  return paragraphs.map(p => {
+    let text = p.trim();
+    if (!text) return '';
+
+    if (text.startsWith('__CODEBLOCK_') && text.endsWith('__')) {
+      const idx = parseInt(text.replace(/__CODEBLOCK_(\d+)__/, '$1'), 10);
+      return codeBlocks[idx] || '';
+    }
+
+    if (text.startsWith('# ')) return `<h1>${formatInline(text.slice(2))}</h1>`;
+    if (text.startsWith('## ')) return `<h2>${formatInline(text.slice(3))}</h2>`;
+    if (text.startsWith('### ')) return `<h3>${formatInline(text.slice(4))}</h3>`;
+    if (text.startsWith('#### ')) return `<h4>${formatInline(text.slice(5))}</h4>`;
+
+    if (text.startsWith('> ')) {
+      const quoteText = text.split('\n').map(l => l.replace(/^>\s?/, '')).join('<br>');
+      return `<blockquote>${formatInline(quoteText)}</blockquote>`;
+    }
+
+    if (text.startsWith('- ') || text.startsWith('* ')) {
+      const items = text.split('\n').map(line => {
+        const itemContent = line.replace(/^[-*]\s+/, '');
+        return `<li>${formatInline(itemContent)}</li>`;
+      }).join('');
+      return `<ul>${items}</ul>`;
+    }
+
+    if (/^\d+\.\s/.test(text)) {
+      const items = text.split('\n').map(line => {
+        const itemContent = line.replace(/^\d+\.\s+/, '');
+        return `<li>${formatInline(itemContent)}</li>`;
+      }).join('');
+      return `<ol>${items}</ol>`;
+    }
+
+    if (text === '---' || text === '***') {
+      return '<hr style="border: none; border-top: 1px solid var(--border-subtle); margin: 20px 0;">';
+    }
+
+    const formattedLines = text.split('\n').map(line => formatInline(line)).join('<br>');
+    return `<p>${formattedLines}</p>`;
+  }).join('');
+}
+
+function formatInline(str = '') {
+  let s = escapeHtml(str);
+  s = s.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/\*(.*?)\*/g, '<em>$1</em>');
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  s = s.replace(/\[\[(.*?)\]\]/g, '<span class="tag-pill" style="cursor:pointer;" onclick="openNote(\'$1\')">[[$1]]</span>');
+  s = s.replace(/\[(.*?)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" class="meta-link">$1</a>');
+  return s;
 }
 
 function escapeHtml(str = '') {
@@ -1082,9 +1469,23 @@ function escapeHtml(str = '') {
 // -------------------------------------------------------------
 window.addEventListener('DOMContentLoaded', async () => {
   initUniverseAnimation();
-  setupEventListeners();
+  await setupEventListeners();
   await loadVault();
 
-  // Open default note "draft" as shown in Image 1
-  openNote('note-draft');
+  // Open first real bookmark if available, else show graph
+  if (state.notesById.size > 0) {
+    const firstId = Array.from(state.notesById.keys())[0];
+    openNote(firstId);
+  } else {
+    showGraphView();
+  }
+
+  try {
+    const pendingActions = await tauriInvoke('take_pending_shortcut_actions');
+    if (Array.isArray(pendingActions)) {
+      pendingActions.forEach((key) => runShortcutOnce(key));
+    }
+  } catch (error) {
+    console.error('Failed to process startup shortcut:', error);
+  }
 });
